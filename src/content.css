@@ -308,6 +308,172 @@ body.cpp-dragging-active .cpp-scroll-window {
   overflow-x: visible !important;
 }
 
+/* ── Per-post move controls ───────────────────────────────────────────────
+ * An up arrow, a topic picker dot and a down arrow floating in the space left
+ * of every post, outside the post box. They only appear while the post is
+ * hovered or focused, and stay out of the way of a drag already in progress. */
+
+.cpp-move-controls {
+  /* Fixed, so a topic's scroll window can never clip the overlay and the
+   * overlay never takes part in the page's layout. positionMoveControls() puts
+   * it beside the post, and it is stacked above everything else on the page. */
+  position: fixed;
+  top: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 3px;
+  border-radius: 999px;
+  /* A tint of the course's own theme colour, so the controls read as part of
+   * the class instead of generic white chrome. The flat white first keeps the
+   * pill visible in engines without color-mix(). */
+  background: #ffffff;
+  background: color-mix(in srgb, var(--cpp-theme, #0b57d0) 16%, #ffffff);
+  box-shadow: 0 1px 5px rgba(60, 64, 67, 0.32);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+  z-index: 2147483000;
+}
+
+/* Shown while the pointer is on the post (or on the overlay), checked in JS so
+ * a click or a scroll cannot leave it stuck on screen, and while the controls
+ * themselves hold keyboard focus. */
+.cpp-move-host.cpp-move-active > .cpp-move-controls,
+.cpp-move-controls:focus-within {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+body.cpp-dragging-active .cpp-move-controls {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+.cpp-move-btn {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
+  color: color-mix(in srgb, var(--cpp-theme, #0b57d0) 68%, #1f1f1f);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 17px;
+  padding: 0;
+}
+
+.cpp-move-btn svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+
+.cpp-move-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--cpp-theme, #0b57d0) 30%, #ffffff);
+  color: color-mix(in srgb, var(--cpp-theme, #0b57d0) 80%, #111111);
+}
+
+.cpp-move-btn:active:not(:disabled) {
+  background: color-mix(in srgb, var(--cpp-theme, #0b57d0) 45%, #ffffff);
+}
+
+.cpp-move-btn:focus-visible {
+  outline: 2px solid var(--cpp-theme, #0b57d0);
+  outline-offset: 1px;
+}
+
+.cpp-move-btn:disabled {
+  color: color-mix(in srgb, var(--cpp-theme, #0b57d0) 22%, #b7bcc2);
+  cursor: default;
+}
+
+.cpp-move-topic {
+  height: 15px;
+}
+
+.cpp-move-topic svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* The topic picker. Fixed-positioned on <body> so a topic's scroll window can
+ * never clip it. */
+.cpp-move-menu {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 2147483001;
+  min-width: 200px;
+  max-width: 320px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 6px;
+  background: #ffffff;
+  border-radius: 10px;
+  box-shadow: 0 3px 12px rgba(60, 64, 67, 0.3);
+  font-family: "Google Sans", "Google Sans Text", Roboto, Arial, sans-serif;
+  font-size: 14px;
+  color: #3c4043;
+}
+
+.cpp-move-menu-title {
+  padding: 4px 10px 6px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #5f6368;
+}
+
+.cpp-move-option {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: inherit;
+  cursor: pointer;
+  display: block;
+  font: inherit;
+  overflow: hidden;
+  padding: 8px 10px;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  width: 100%;
+}
+
+.cpp-move-option:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--cpp-theme, #0b57d0) 12%, #ffffff);
+}
+
+.cpp-move-option:focus-visible {
+  outline: 2px solid var(--cpp-theme, #0b57d0);
+  outline-offset: -2px;
+}
+
+.cpp-move-option:disabled {
+  color: #9aa0a6;
+  cursor: default;
+}
+
+/* The topic the post is already in. */
+.cpp-move-option.cpp-move-current {
+  background: color-mix(in srgb, var(--cpp-theme, #0b57d0) 10%, #ffffff);
+  color: color-mix(in srgb, var(--cpp-theme, #0b57d0) 55%, #3c4043);
+  opacity: 1;
+}
+
+.cpp-move-menu-empty {
+  padding: 8px 10px;
+  color: #5f6368;
+}
+
 /* When Google Classroom collapses topics (or in collapsed accordion states), hide Classroom++ controls */
 .zq2w8b[style*="display: none"] ~ .cpp-ui,
 .zq2w8b[style*="display:none"] ~ .cpp-ui,

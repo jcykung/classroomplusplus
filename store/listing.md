@@ -21,7 +21,7 @@ screenshots, `classroom-feed.html` and the developer docs stay out of the packag
 **Short description (132 chars max):**
 
 ```
-Scrollable 5-post topic windows on the Google Classroom Classwork tab, plus bulk select on the To review page.
+Scrollable 5-post topic windows and a hover post mover on the Classroom Classwork tab, plus bulk select on To review.
 ```
 
 **Category:** Education
@@ -47,6 +47,11 @@ CLASSWORK LAYOUT
 • "View all" / "View fewer" expands a topic in place.
 • A "Reverse order" button next to Classroom's own "Collapse all" flips the order of posts
   in every topic.
+• Hover any post for an up arrow, a down arrow and a topic dot beside it: step the post up or
+  down (the ends wrap around) or send it to another topic from the dot's picker, with a slide
+  animation instead of dragging.
+• Every Classwork feature has its own switch — scroll areas, move overlay and the Reverse order
+  button — so you can keep only the parts you want.
 • Opening a post to edit it grows its scroll area by the same amount, so the whole post
   stays visible.
 • Entering a class's Classwork never reloads the page — the view mounts fresh, so its posts
@@ -83,8 +88,8 @@ clicking when marking work reviewed.
 
 **`storage`**
 ```
-Stores the user's three display preferences (Classwork layout on/off, bulk select on/off,
-reverse order on/off) in chrome.storage.sync. No personal data is stored.
+Stores the user's display preferences (scroll areas on/off, move overlay on/off, reverse order
+button on/off, bulk select on/off) in chrome.storage.sync. No personal data is stored.
 ```
 
 **`scripting`**
@@ -135,4 +140,4 @@ takes effect immediately.
 1. Classwork tab with two scrollable topics and the Reverse order button.
 2. A topic expanded with "View fewer" and a post open for editing.
 3. The To review page with checkboxes and the floating action bar.
-4. The extension popup showing the two settings.
+4. The extension popup showing the four settings.

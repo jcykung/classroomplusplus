@@ -16,6 +16,9 @@
  *    fresh, so its posts come from Classroom, and returning to a class reuses
  *    the posts already on the page. The loading bar only appears when there is
  *    actually work to do.
+ * 5. Every post in a topic carries a small overlay that fades in on hover: an
+ *    up arrow, a dot that opens the topic picker, and a down arrow. Dragging a
+ *    post is fiddly, so these move it one step (or into another topic) instead.
  */
 (() => {
   'use strict';
@@ -37,6 +40,18 @@
     toggle: 'cpp-toggle',
     toggleText: 'cpp-toggle-text',
     toggleIcon: 'cpp-toggle-icon',
+    moveHost: 'cpp-move-host',
+    moveActive: 'cpp-move-active',
+    moveControls: 'cpp-move-controls',
+    moveBtn: 'cpp-move-btn',
+    moveUp: 'cpp-move-up',
+    moveDown: 'cpp-move-down',
+    moveTopic: 'cpp-move-topic',
+    topicMenu: 'cpp-move-menu',
+    topicMenuTitle: 'cpp-move-menu-title',
+    topicOption: 'cpp-move-option',
+    topicCurrent: 'cpp-move-current',
+    topicMenuEmpty: 'cpp-move-menu-empty',
   };
 
   const VARS = {
@@ -83,6 +98,97 @@
     </svg>
   `.trim();
 
+  const MOVE_ICON = {
+    up: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 6.5 18 13h-3.7v4.5H9.7V13H6z"/></svg>',
+    down: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 17.5 6 11h3.7V6.5h4.6V11H18z"/></svg>',
+    dot: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/></svg>',
+  };
+
+  /** Used for the move controls until the course's own theme colour is read. */
+  const DEFAULT_THEME_COLOR = '#0b57d0';
+  /** How long a post takes to slide into its new place. */
+  const MOVE_ANIM_MS = 220;
+  // Keeps the dot on the post header's vertical midpoint, not low on the card.
+  const MOVE_TOP = 2;
+
+  /** Theme colour cache: the class banner is read once, not on every scan. */
+  let themeColorCache = '';
+  let themeColorCacheAt = 0;
+  let themeColorCachePath = '';
+
+  /** Pull a saturated colour out of a CSS colour or gradient, if there is one. */
+  function colorFromStyle(value) {
+    const match = /rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:\s*[,/]\s*([\d.]+))?\s*\)/.exec(
+      value || ''
+    );
+    if (!match) return '';
+    if (match[4] !== undefined && parseFloat(match[4]) < 0.5) return '';
+    const rgb = [match[1], match[2], match[3]].map((n) => Math.round(parseFloat(n)));
+    const max = Math.max(rgb[0], rgb[1], rgb[2]);
+    const min = Math.min(rgb[0], rgb[1], rgb[2]);
+    // Whites, blacks and greys are page chrome, not a course theme.
+    if (max - min < 24 || min > 232 || max < 40) return '';
+    return `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
+  }
+
+  function themeColorFrom(el) {
+    if (!el) return '';
+    let style = null;
+    try {
+      style = getComputedStyle(el);
+    } catch (_) {
+      return '';
+    }
+    const direct = colorFromStyle(style.backgroundColor);
+    if (direct) return direct;
+    const image = style.backgroundImage || '';
+    if (!image || image === 'none') return '';
+    for (const value of image.match(/rgba?\([^)]*\)/g) || []) {
+      const found = colorFromStyle(value);
+      if (found) return found;
+    }
+    return '';
+  }
+
+  /**
+   * The class's own theme colour, so the move controls look like part of the
+   * course instead of generic white chrome.
+   *
+   * Classroom paints the class banner with the course theme (a flat colour for
+   * colour themes, a gradient for image themes), so the banner is read first
+   * and the first large coloured surface near the top is the fallback.
+   */
+  function courseThemeColor() {
+    const path = location.pathname;
+    const now = Date.now();
+    if (themeColorCache && themeColorCachePath === path && now - themeColorCacheAt < 5000) {
+      return themeColorCache;
+    }
+    const banner = document.querySelector(
+      '[jsname="r4nke"], .d4Fe0d, .tLDEHd, [data-course-theme], header, [role="banner"]'
+    );
+    let color = themeColorFrom(banner);
+    if (!color) {
+      const scope = banner || document.body;
+      const all = scope.querySelectorAll('*');
+      for (let i = 0; i < all.length && i < 600; i++) {
+        const el = all[i];
+        if (el.closest(`.${CLASS.ui}`)) continue;
+        const rect = el.getBoundingClientRect();
+        if (rect.width < 40 || rect.height < 40) continue;
+        const found = themeColorFrom(el);
+        if (found) {
+          color = found;
+          break;
+        }
+      }
+    }
+    themeColorCache = color || DEFAULT_THEME_COLOR;
+    themeColorCacheAt = now;
+    themeColorCachePath = path;
+    return themeColorCache;
+  }
+
   const SORT_STORAGE_KEY = 'cpp_reverse_order';
   let isReversed = (() => {
     try {
@@ -103,19 +209,42 @@
 
   /** Bulk "mark as reviewed" checkboxes on the To review page (on by default). */
   let bulkReviewEnabled = true;
-  /** Master switch for every Classwork enhancement (on by default). */
-  let classworkLayoutEnabled = true;
+  /** 5-post scroll areas, full loading, centring and View all / View fewer. */
+  let scrollWindowsEnabled = true;
+  /** The up arrow / topic dot / down arrow overlay beside each post. */
+  let moveOverlayEnabled = true;
+  /** The Reverse order button next to Classroom's "Collapse all". */
+  let reverseButtonEnabled = true;
 
-  /** Reads the Classwork Layout switch, honouring its pre-0.2.2 key. */
-  function readClassworkLayout(result) {
+  /**
+   * The old single "Classwork Layout" switch. It is a fallback now: anyone who
+   * turned it off keeps all three Classwork features off until they choose.
+   */
+  function readLegacyClassworkLayout(result) {
     if (!result) return true;
     if (typeof result.classworkLayout === 'boolean') return result.classworkLayout;
     return result.smartCentering !== false;
   }
 
+  /** A feature switch, falling back to the old master switch if never set. */
+  function readFeatureSwitch(result, key) {
+    if (result && typeof result[key] === 'boolean') return result[key];
+    return readLegacyClassworkLayout(result);
+  }
+
+  const SETTINGS_KEYS = [
+    'isReversed',
+    'bulkReview',
+    'scrollWindows',
+    'moveOverlay',
+    'reverseButton',
+    'classworkLayout',
+    'smartCentering',
+  ];
+
   function loadInitialSettings() {
     if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.sync) {
-      chrome.storage.sync.get(['isReversed', 'bulkReview', 'classworkLayout', 'smartCentering'], (result) => {
+      chrome.storage.sync.get(SETTINGS_KEYS, (result) => {
         if (result && typeof result.isReversed === 'boolean') {
           if (result.isReversed !== isReversed) {
             isReversed = result.isReversed;
@@ -130,9 +259,17 @@
           bulkReviewEnabled = result.bulkReview;
           updateReviewMode();
         }
-        const layout = readClassworkLayout(result);
-        if (layout !== classworkLayoutEnabled) {
-          classworkLayoutEnabled = layout;
+        const windows = readFeatureSwitch(result, 'scrollWindows');
+        const overlay = readFeatureSwitch(result, 'moveOverlay');
+        const reverse = readFeatureSwitch(result, 'reverseButton');
+        if (
+          windows !== scrollWindowsEnabled ||
+          overlay !== moveOverlayEnabled ||
+          reverse !== reverseButtonEnabled
+        ) {
+          scrollWindowsEnabled = windows;
+          moveOverlayEnabled = overlay;
+          reverseButtonEnabled = reverse;
           scan();
         }
       });
@@ -156,8 +293,23 @@
         bulkReviewEnabled = changes.bulkReview.newValue !== false;
         updateReviewMode();
       }
+      if (area === 'sync' && changes.scrollWindows) {
+        scrollWindowsEnabled = changes.scrollWindows.newValue !== false;
+        scan();
+      }
+      if (area === 'sync' && changes.moveOverlay) {
+        moveOverlayEnabled = changes.moveOverlay.newValue !== false;
+        scan();
+      }
+      if (area === 'sync' && changes.reverseButton) {
+        reverseButtonEnabled = changes.reverseButton.newValue !== false;
+        scan();
+      }
       if (area === 'sync' && changes.classworkLayout) {
-        classworkLayoutEnabled = changes.classworkLayout.newValue !== false;
+        const on = changes.classworkLayout.newValue !== false;
+        scrollWindowsEnabled = on;
+        moveOverlayEnabled = on;
+        reverseButtonEnabled = on;
         scan();
       }
     });
@@ -858,6 +1010,11 @@
         btn.classList.remove('cpp-native-view-more');
       }
     }
+    if (openTopicMenu && container.contains(openTopicMenu.anchor)) closeTopicMenu();
+    for (const el of container.querySelectorAll(`.${CLASS.moveControls}`)) el.remove();
+    for (const el of container.querySelectorAll(`.${CLASS.moveHost}`)) {
+      el.classList.remove(CLASS.moveHost, CLASS.moveActive);
+    }
     const st = stateByContainer.get(container);
     if (st && st.ui) st.ui.remove();
     if (st && st.heightObserver) st.heightObserver.disconnect();
@@ -910,6 +1067,10 @@
     st.items = items;
     st.itemCount = items.length;
 
+    // Every post in a managed topic gets the hover overlay; posts in the short
+    // topics get theirs from applyMoveControls() during the scan.
+    for (const item of items) ensureMoveControls(item);
+
     const previousScroll = container.scrollTop;
     const metrics = measureWindow(items);
     if (!metrics) {
@@ -945,6 +1106,7 @@
     setupDragAndDrop(container);
 
     ensureControls(container, st);
+    syncMoveControls(container);
 
     if (st.expanded) return;
 
@@ -1240,6 +1402,621 @@
     });
   }
 
+  // --- Per-post move controls (up / topic / down) ---
+  //
+  // Dragging a post is fiddly, so every post on the Classwork page carries a small
+  // overlay that fades in while the post is hovered or focused: an up arrow, a
+  // dot that opens the topic picker, and a down arrow. A move happens inside the
+  // topic's own post list, one step through the order the user sees — with
+  // Reverse order on, "up" is one step earlier on screen.
+
+  /**
+   * Every post list this page has, managed or not, so the arrows also work in
+   * topics that are too small to need a scroll window.
+   */
+  let postLists = new Map();
+
+  /**
+   * Topic lists seen with posts in them at some point. collectGroups() drops a
+   * list the moment it is empty, which used to make the topic vanish from the
+   * picker as soon as its last post was moved out.
+   */
+  let knownTopicLists = new Set();
+
+  /** The post list a post currently lives in, if any. */
+  function postListForItem(item) {
+    const parent = item && item.parentElement;
+    if (!parent) return null;
+    if (stateByContainer.has(parent) || postLists.has(parent)) return parent;
+    for (const container of activeContainers) {
+      if (container.contains(item)) return container;
+    }
+    for (const container of postLists.keys()) {
+      if (container.contains(item)) return container;
+    }
+    return null;
+  }
+
+  /** The posts of a list in DOM order; our own chrome is never a post. */
+  function containerItems(container) {
+    return Array.from(container.children).filter(
+      (child) => !child.classList.contains(CLASS.ui)
+    );
+  }
+
+  /** The post whose controls are on screen, so they can follow it when it moves. */
+  let hoveredMoveItem = null;
+  /** Where the pointer was last seen, used to prove a post is still hovered. */
+  let pointerPos = null;
+
+  /**
+   * Place a post's controls beside it.
+   *
+   * The controls are position: fixed so a topic's scroll window can never clip
+   * them and they never take part in layout: they are placed here, in the empty
+   * space left of the post's own box, and follow a post that scrolls. The dot
+   * ends up on the post header's vertical midpoint.
+   */
+  function positionMoveControls(item, controls) {
+    const box = item.getBoundingClientRect();
+    if (!box.width && !box.height) return;
+    const width = controls.offsetWidth || 28;
+    controls.style.left = `${box.left - width}px`;
+    controls.style.top = `${box.top + MOVE_TOP}px`;
+  }
+
+  function activateMoveControls(item, controls) {
+    hoveredMoveItem = item;
+    item.classList.add(CLASS.moveActive);
+    positionMoveControls(item, controls);
+  }
+
+  function deactivateMoveControls(item) {
+    if (!item) return;
+    item.classList.remove(CLASS.moveActive);
+    if (hoveredMoveItem === item) hoveredMoveItem = null;
+  }
+
+  function pointInBox(box) {
+    return (
+      !!pointerPos &&
+      pointerPos.x >= box.left &&
+      pointerPos.x <= box.right &&
+      pointerPos.y >= box.top &&
+      pointerPos.y <= box.bottom
+    );
+  }
+
+  /**
+   * Hide the controls unless the pointer is really still on the post (or on the
+   * overlay itself).
+   *
+   * CSS :hover is not enough: Chrome keeps a stale hover state through a click,
+   * an inline expansion or a scroll, which left the overlay stuck on screen
+   * after a post was clicked. The pointer position is checked instead, whenever
+   * anything may have moved underneath it.
+   */
+  function verifyHoveredMoveItem() {
+    const item = hoveredMoveItem;
+    if (!item) return;
+    const controls = moveControlsFor(item);
+    if (!item.isConnected || !controls) {
+      deactivateMoveControls(item);
+      return;
+    }
+    const onPost = pointInBox(item.getBoundingClientRect());
+    const onOverlay = pointInBox(controls.getBoundingClientRect());
+    if (!onPost && !onOverlay) {
+      deactivateMoveControls(item);
+      return;
+    }
+    positionMoveControls(item, controls);
+  }
+
+  document.addEventListener(
+    'pointermove',
+    (e) => {
+      pointerPos = { x: e.clientX, y: e.clientY };
+    },
+    true
+  );
+  // A click can expand a post or scroll the page, after which Chrome does not
+  // always refresh :hover: re-check once the click has been handled.
+  document.addEventListener(
+    'pointerdown',
+    () => {
+      setTimeout(verifyHoveredMoveItem, 0);
+      setTimeout(verifyHoveredMoveItem, 260);
+    },
+    true
+  );
+  window.addEventListener('scroll', verifyHoveredMoveItem, true);
+  window.addEventListener('resize', verifyHoveredMoveItem);
+  window.addEventListener('blur', () => deactivateMoveControls(hoveredMoveItem));
+  document.addEventListener('pointerleave', () => deactivateMoveControls(hoveredMoveItem));
+
+  function moveControlsFor(item) {
+    for (const child of item.children) {
+      if (child.classList.contains(CLASS.moveControls)) return child;
+    }
+    return null;
+  }
+
+  function ensureMoveControls(item) {
+    if (moveControlsFor(item)) return;
+
+    // Nothing about the post's own box is touched: the overlay is fixed and
+    // placed beside it, so the page's CSS layout stays exactly as Classroom
+    // built it (no containing block, padding or position changes).
+    item.classList.add(CLASS.moveHost);
+
+    const controls = document.createElement('div');
+    controls.className = `${CLASS.ui} ${CLASS.moveControls}`;
+    controls.style.setProperty('--cpp-theme', courseThemeColor());
+    controls.setAttribute('role', 'group');
+    controls.setAttribute('aria-label', 'Move this post');
+    // Keep the overlay out of Classroom's (and our own) drag gesture.
+    controls.addEventListener('mousedown', (e) => e.stopPropagation());
+
+    const up = document.createElement('button');
+    up.type = 'button';
+    up.className = `${CLASS.moveBtn} ${CLASS.moveUp}`;
+    up.innerHTML = MOVE_ICON.up;
+    up.setAttribute('aria-label', 'Move post up');
+    up.title = 'Move up';
+    up.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      movePostByOne(item, -1);
+    });
+
+    const topic = document.createElement('button');
+    topic.type = 'button';
+    topic.className = `${CLASS.moveBtn} ${CLASS.moveTopic}`;
+    topic.innerHTML = MOVE_ICON.dot;
+    topic.setAttribute('aria-label', 'Move post to another topic');
+    topic.setAttribute('aria-haspopup', 'menu');
+    topic.setAttribute('aria-expanded', 'false');
+    topic.title = 'Move to topic';
+    topic.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleTopicMenu(item, topic);
+    });
+
+    const down = document.createElement('button');
+    down.type = 'button';
+    down.className = `${CLASS.moveBtn} ${CLASS.moveDown}`;
+    down.innerHTML = MOVE_ICON.down;
+    down.setAttribute('aria-label', 'Move post down');
+    down.title = 'Move down';
+    down.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      movePostByOne(item, 1);
+    });
+
+    controls.appendChild(up);
+    controls.appendChild(topic);
+    controls.appendChild(down);
+    item.appendChild(controls);
+
+    positionMoveControls(item, controls);
+    item.addEventListener('pointerenter', (e) => {
+      // A drag whose mouseup never arrived (the button was released outside the
+      // page) would otherwise keep every overlay suppressed for good.
+      if (!e.buttons) document.body.classList.remove('cpp-dragging-active');
+      pointerPos = { x: e.clientX, y: e.clientY };
+      activateMoveControls(item, controls);
+    });
+    item.addEventListener('pointerleave', () => deactivateMoveControls(item));
+    // Keyboard users reach the controls by tabbing; keep the overlay beside the
+    // post while focus is inside it.
+    controls.addEventListener('focusin', () => positionMoveControls(item, controls));
+  }
+
+  function removeMoveControls(item) {
+    const controls = moveControlsFor(item);
+    if (controls) controls.remove();
+    item.classList.remove(CLASS.moveHost, CLASS.moveActive);
+    if (hoveredMoveItem === item) hoveredMoveItem = null;
+  }
+
+  /** Drop overlays left on posts that no longer belong to a known post list. */
+  function pruneMoveControls() {
+    for (const controls of document.querySelectorAll(`.${CLASS.moveControls}`)) {
+      const post = controls.parentElement;
+      if (post && post.parentElement && postLists.has(post.parentElement)) continue;
+      if (post) removeMoveControls(post);
+      else controls.remove();
+    }
+  }
+
+  /** Remove every overlay on the page: leaving Classwork, or switching it off. */
+  function removeAllMoveControls() {
+    for (const el of document.querySelectorAll(`.${CLASS.moveControls}`)) el.remove();
+    for (const el of document.querySelectorAll(`.${CLASS.moveHost}`)) {
+      el.classList.remove(CLASS.moveHost, CLASS.moveActive);
+    }
+    hoveredMoveItem = null;
+    postLists = new Map();
+    knownTopicLists = new Set();
+  }
+
+  /** Give every visible post its overlay, and keep the arrows in sync. */
+  function applyMoveControls(groups) {
+    postLists = new Map();
+    for (const [container, items] of groups) {
+      const live = containerItems(container);
+      if (!live.length) continue;
+      knownTopicLists.add(container);
+      postLists.set(container, live);
+      // A collapsed or parked topic has no box on screen: it gets its overlays
+      // once it is visible again, so nothing is added to a hidden copy.
+      if (!container.getClientRects().length) continue;
+      for (const item of live) ensureMoveControls(item);
+    }
+    for (const container of Array.from(knownTopicLists)) {
+      if (!container.isConnected) knownTopicLists.delete(container);
+    }
+    pruneMoveControls();
+    for (const container of postLists.keys()) syncMoveControls(container);
+  }
+
+  /**
+   * The arrows wrap, so both stay usable whenever a topic has something to
+   * move; only a lone post has nowhere to go.
+   */
+  function syncMoveControls(container) {
+    const color = courseThemeColor();
+    const movable = containerItems(container).length > 1;
+    for (const controls of container.querySelectorAll(`.${CLASS.moveControls}`)) {
+      controls.style.setProperty('--cpp-theme', color);
+      const up = controls.querySelector(`.${CLASS.moveUp}`);
+      const down = controls.querySelector(`.${CLASS.moveDown}`);
+      if (up) up.disabled = !movable;
+      if (down) down.disabled = !movable;
+    }
+  }
+
+  /** Re-apply everything that depends on the order of a topic's posts. */
+  function afterPostMove(container) {
+    const st = stateByContainer.get(container);
+    const items = containerItems(container);
+    if (st) {
+      st.items = items;
+      st.itemCount = items.length;
+      // Let the next scan re-measure the window: the posts may differ in height.
+      st.windowHeight = 0;
+      applySortOrderToContainer(container, items, isReversed);
+      observeWindowHeights(container, st, items);
+      if (st.ui) ensureControls(container, st);
+    }
+    syncMoveControls(container);
+    // The post just jumped, so the overlay's spot moved with it.
+    verifyHoveredMoveItem();
+    scheduleScan(120);
+  }
+
+  function prefersReducedMotion() {
+    try {
+      return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /** Where every post in a topic sits right now, for the slide animation. */
+  function postRects(container) {
+    const rects = new Map();
+    for (const el of containerItems(container)) rects.set(el, el.getBoundingClientRect());
+    return rects;
+  }
+
+  /**
+   * Slide every post from where it was to where it is now (FLIP).
+   *
+   * A post that wrapped around the end of the topic is faded back in from the
+   * direction it was heading: gliding it across the whole list would look like
+   * a glitch and pull the eye away from the post that actually moved.
+   */
+  function animatePostMove(container, item, before, after, wrapped, delta) {
+    if (prefersReducedMotion()) return;
+    const timing = { duration: MOVE_ANIM_MS, easing: 'cubic-bezier(0.22, 0.61, 0.36, 1)' };
+    for (const el of containerItems(container)) {
+      const from = before.get(el);
+      const to = after.get(el);
+      if (!from || !to) continue;
+      if (el === item && wrapped) {
+        // Down wraps to the top, so it re-enters from above, and vice versa.
+        const enterFrom = delta > 0 ? -20 : 20;
+        el.animate(
+          [
+            { opacity: 0, transform: `translateY(${enterFrom}px) scale(0.97)` },
+            { opacity: 1, transform: 'none' },
+          ],
+          timing
+        );
+        continue;
+      }
+      const dy = from.top - to.top;
+      if (Math.abs(dy) < 1) continue;
+      el.animate([{ transform: `translateY(${dy}px)` }, { transform: 'none' }], timing);
+    }
+  }
+
+  /**
+   * Move a post one step through the order shown: -1 up, +1 down.
+   *
+   * The ends wrap, so the down arrow on the last post sends it to the top of
+   * the topic and the up arrow on the first sends it to the bottom.
+   */
+  function movePostByOne(item, delta) {
+    const container = postListForItem(item);
+    if (!container || !delta) return;
+    const items = containerItems(container);
+    if (items.length < 2) return;
+    const visual = isReversed ? items.slice().reverse() : items;
+    const index = visual.indexOf(item);
+    if (index < 0) return;
+
+    let target = index + delta;
+    const wrapped = target < 0 || target >= visual.length;
+    if (target < 0) target = visual.length - 1;
+    else if (target >= visual.length) target = 0;
+    const anchor = visual[target];
+    if (!anchor || anchor === item) return;
+
+    // Reverse order is a CSS `order` flip, so "next on screen" is "earlier in
+    // the DOM" while it is on.
+    const towardsStart = target < index;
+    const insertBeforeAnchor = isReversed ? !towardsStart : towardsStart;
+
+    const before = postRects(container);
+    if (insertBeforeAnchor) container.insertBefore(item, anchor);
+    else container.insertBefore(item, anchor.nextSibling);
+    const after = postRects(container);
+
+    afterPostMove(container);
+    animatePostMove(container, item, before, after, wrapped, delta);
+  }
+
+  const TOPIC_HEADING_SELECTOR = 'h2, [role="heading"][aria-level="2"], [jsname="K3jAGe"]';
+
+  function cleanTopicLabel(text) {
+    return String(text || '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      // The header sometimes carries the post count next to the title.
+      .replace(/\s*[\u00b7\u2022|\u2013-]?\s*\d+\s+(?:post|assignment|material|question|item)s?$/i, '')
+      .trim();
+  }
+
+  /**
+   * The topic title the page shows above a post list.
+   *
+   * Taking "the first heading in the closest section" picked the wrong heading
+   * on Classroom's nested markup, so the picker offered names that were not on
+   * the page. The title that belongs to a list is the nearest heading *before*
+   * it that lives inside the same topic wrapper.
+   */
+  function topicNameFor(container) {
+    let heading = null;
+    const wrapper = container.closest('[data-topic-id], section, [role="region"]');
+    if (wrapper) {
+      for (const el of wrapper.querySelectorAll(TOPIC_HEADING_SELECTOR)) {
+        // Only headings above the list belong to it: a nested topic's heading
+        // comes after its parent's list.
+        if (el.compareDocumentPosition(container) & Node.DOCUMENT_POSITION_FOLLOWING) {
+          heading = el;
+        }
+      }
+    } else {
+      // A list without a topic wrapper: walk up looking for the heading right
+      // above it, stopping at anything that belongs to another topic.
+      const stop = getMainElement();
+      let node = container;
+      while (node && node !== stop && !heading) {
+        let sibling = node.previousElementSibling;
+        while (sibling) {
+          if (sibling.matches('ol, [role="list"]') || sibling.querySelector('ol, [role="list"]')) {
+            break;
+          }
+          const found = sibling.matches(TOPIC_HEADING_SELECTOR)
+            ? sibling
+            : sibling.querySelector(TOPIC_HEADING_SELECTOR);
+          if (found) {
+            heading = found;
+            break;
+          }
+          sibling = sibling.previousElementSibling;
+        }
+        node = node.parentElement;
+      }
+    }
+    const name = cleanTopicLabel(heading && heading.textContent);
+    return name || 'Untitled topic';
+  }
+
+  /**
+   * Whether a topic counts as somewhere a post can go.
+   *
+   * An emptied topic list no longer has a box of its own, so its wrapper — the
+   * section that still holds the heading — decides. A collapsed topic, or
+   * another class' copy parked in the DOM, has no box either and stays out.
+   */
+  function topicIsOnPage(container) {
+    if (!container.isConnected) return false;
+    if (container.getClientRects().length) return true;
+    if (!containerItems(container).length) {
+      try {
+        if (getComputedStyle(container).display === 'none') return false;
+      } catch (_) {
+        return false;
+      }
+    }
+    const wrapper = container.closest('[data-topic-id], section, [role="region"]');
+    return !!(wrapper && wrapper.getClientRects().length) || container.offsetParent !== null;
+  }
+
+  /** Document order, so the picker matches the order the topics appear in. */
+  function byPageOrder(a, b) {
+    if (a === b) return 0;
+    const relation = a.compareDocumentPosition(b);
+    if (relation & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
+    if (relation & Node.DOCUMENT_POSITION_PRECEDING) return 1;
+    return 0;
+  }
+
+  /** Every topic a post could be moved into, including ones that are now empty. */
+  function topicTargets() {
+    const targets = [];
+    const containers = new Set();
+    for (const container of postLists.keys()) containers.add(container);
+    for (const container of knownTopicLists) containers.add(container);
+    for (const container of collectGroups(getMainElement()).keys()) containers.add(container);
+    // Sorted rather than listed in discovery order: an emptied topic drops out
+    // of the scan, and appending it at the end would reshuffle the menu.
+    const ordered = Array.from(containers).filter((c) => c.isConnected).sort(byPageOrder);
+    for (const container of ordered) {
+      if (!topicIsOnPage(container)) continue;
+      targets.push({ container, name: topicNameFor(container) });
+    }
+    return targets;
+  }
+
+  /** Append a post to another topic and keep both topics in shape. */
+  function movePostToTopic(item, targetContainer) {
+    const source = postListForItem(item);
+    if (!targetContainer || !source || targetContainer === source) return false;
+    targetContainer.appendChild(item);
+    afterPostMove(source);
+    afterPostMove(targetContainer);
+    revealPostInContainer(targetContainer, item);
+    return true;
+  }
+
+  /** Scroll a topic's window just enough to show the post that moved into it. */
+  function revealPostInContainer(container, item) {
+    const box = container.getBoundingClientRect();
+    const rect = item.getBoundingClientRect();
+    if (rect.height === 0 || box.height === 0) return;
+    if (rect.top < box.top) container.scrollTop += rect.top - box.top;
+    else if (rect.bottom > box.bottom) container.scrollTop += rect.bottom - box.bottom;
+  }
+
+  // --- Topic picker opened by the dot ---
+
+  let openTopicMenu = null;
+
+  function positionTopicMenu(menu, anchor) {
+    const anchorRect = anchor.getBoundingClientRect();
+    const size = menu.getBoundingClientRect();
+    const margin = 8;
+    // The controls sit on the left edge of the post, so the menu opens to their
+    // right and only flips left when there is no room.
+    let left = anchorRect.right + margin;
+    if (left + size.width > window.innerWidth - margin) {
+      left = Math.max(margin, anchorRect.left - margin - size.width);
+    }
+    let top = anchorRect.top + anchorRect.height / 2 - size.height / 2;
+    top = Math.max(margin, Math.min(top, window.innerHeight - margin - size.height));
+    menu.style.left = `${Math.round(Math.max(margin, left))}px`;
+    menu.style.top = `${Math.round(top)}px`;
+  }
+
+  function onTopicMenuOutside(event) {
+    if (!openTopicMenu) return;
+    if (openTopicMenu.menu.contains(event.target)) return;
+    if (openTopicMenu.anchor.contains(event.target)) return;
+    closeTopicMenu();
+  }
+
+  function onTopicMenuKey(event) {
+    if (event.key === 'Escape') closeTopicMenu();
+  }
+
+  function closeTopicMenu() {
+    if (!openTopicMenu) return;
+    const { anchor, menu } = openTopicMenu;
+    openTopicMenu = null;
+    document.removeEventListener('mousedown', onTopicMenuOutside, true);
+    document.removeEventListener('keydown', onTopicMenuKey, true);
+    window.removeEventListener('scroll', closeTopicMenu, true);
+    window.removeEventListener('resize', closeTopicMenu);
+    if (anchor && anchor.isConnected) anchor.setAttribute('aria-expanded', 'false');
+    menu.remove();
+  }
+
+  function toggleTopicMenu(item, anchor) {
+    if (openTopicMenu && openTopicMenu.anchor === anchor) {
+      closeTopicMenu();
+      return;
+    }
+    closeTopicMenu();
+
+    const current = postListForItem(item);
+    const menu = document.createElement('div');
+    menu.className = `${CLASS.ui} ${CLASS.topicMenu}`;
+    menu.style.setProperty('--cpp-theme', courseThemeColor());
+    menu.setAttribute('role', 'menu');
+    menu.setAttribute('aria-label', 'Move post to topic');
+
+    const title = document.createElement('div');
+    title.className = CLASS.topicMenuTitle;
+    title.textContent = 'Move to topic';
+    menu.appendChild(title);
+
+    let choices = 0;
+    for (const { container, name } of topicTargets()) {
+      const option = document.createElement('button');
+      option.type = 'button';
+      option.className = CLASS.topicOption;
+      option.setAttribute('role', 'menuitem');
+      option.textContent = name;
+      if (container === current) {
+        option.classList.add(CLASS.topicCurrent);
+        option.setAttribute('aria-current', 'true');
+        option.disabled = true;
+      } else {
+        choices++;
+        option.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          closeTopicMenu();
+          movePostToTopic(item, container);
+        });
+      }
+      menu.appendChild(option);
+    }
+
+    if (choices === 0) {
+      const empty = document.createElement('div');
+      empty.className = CLASS.topicMenuEmpty;
+      empty.textContent = 'No other topics on this page';
+      menu.appendChild(empty);
+    }
+
+    (document.body || document.documentElement).appendChild(menu);
+    positionTopicMenu(menu, anchor);
+    anchor.setAttribute('aria-expanded', 'true');
+    openTopicMenu = { anchor, menu };
+
+    document.addEventListener('mousedown', onTopicMenuOutside, true);
+    document.addEventListener('keydown', onTopicMenuKey, true);
+    window.addEventListener('scroll', closeTopicMenu, true);
+    window.addEventListener('resize', closeTopicMenu);
+
+    const first = menu.querySelector(`.${CLASS.topicOption}:not([disabled])`);
+    if (first) {
+      try {
+        first.focus({ preventScroll: true });
+      } catch (_) {
+        first.focus();
+      }
+    }
+  }
+
   // --- Sort Order (Reverse All Topics) ---
 
   // Looking for "Collapse all" walks every button on the page, so the result is
@@ -1506,10 +2283,20 @@
       if (!st || !st.items) continue;
 
       applySortOrderToContainer(container, st.items, isReversed);
+      // The arrows follow the order on screen, which just flipped.
+      syncMoveControls(container);
 
       if (!st.expanded) {
         const latestIdx = findLatestPostIndex(st.items);
         alignLatestPostToMiddle(container, st.items, latestIdx, isReversed);
+      }
+    }
+
+    // Without scroll areas a topic is still just a list, so the Reverse order
+    // button flips it the same way.
+    if (!scrollWindowsEnabled) {
+      for (const [container, items] of collectGroups(getMainElement())) {
+        applySortOrderToContainer(container, items, isReversed);
       }
     }
   }
@@ -1814,7 +2601,7 @@
    */
   function requestExpansion(delay = 0) {
     if (isExpanding || expansionRequested) return;
-    if (!classworkLayoutEnabled) return;
+    if (!scrollWindowsEnabled) return;
     if (!onClassworkContent()) return;
     if (findUnclickedViewMore().length === 0) return;
 
@@ -1834,7 +2621,7 @@
   function ensurePostsLoaded() {
     if (document.visibilityState === 'hidden') return;
     if (isExpanding || expansionRequested) return;
-    if (!classworkLayoutEnabled) return;
+    if (!scrollWindowsEnabled) return;
     if (!onClassworkContent()) return;
     if (findUnclickedViewMore().length === 0) return;
     requestExpansion(0);
@@ -1874,7 +2661,7 @@
     // Nothing here matters while the tab is in the background; resuming the tab
     // fires visibilitychange, which scans immediately.
     if (document.visibilityState === 'hidden') return;
-    if (!classworkLayoutEnabled) return;
+    if (!scrollWindowsEnabled) return;
 
     // Silent SPA navigation (history.pushState) fires no event of its own.
     if (location.pathname !== lastPath) onNavigationChange();
@@ -1998,16 +2785,8 @@
       updateReviewMode();
       if (isToReviewView()) {
         for (const container of Array.from(activeContainers)) teardown(container);
+        removeAllMoveControls();
         removeSortToggleButton();
-        return;
-      }
-
-      // Classwork Layout switched off in the popup: leave the Classwork page
-      // exactly as Google built it, and undo anything already applied.
-      if (!classworkLayoutEnabled) {
-        for (const container of Array.from(activeContainers)) teardown(container);
-        removeSortToggleButton();
-        cancelSetup();
         return;
       }
 
@@ -2026,29 +2805,48 @@
         const parkedTopics = document.querySelector('[data-topic-id]');
         if (!parkedTopics && !isExpanding) {
           for (const container of Array.from(activeContainers)) teardown(container);
+          removeAllMoveControls();
           cancelSetup();
         }
         return;
       }
 
-      ensureSortToggleButton();
+      // Each Classwork feature has its own switch: turning one off only undoes
+      // that feature and leaves the other two exactly as they are.
+      if (reverseButtonEnabled) ensureSortToggleButton();
+      else removeSortToggleButton();
 
       const main = getMainElement();
       const groups = collectGroups(main);
 
-      for (const [container, items] of groups) {
-        if (!shouldHandle(container, items)) {
-          if (activeContainers.has(container)) teardown(container);
-          continue;
+      if (scrollWindowsEnabled) {
+        for (const [container, items] of groups) {
+          if (!shouldHandle(container, items)) {
+            if (activeContainers.has(container)) teardown(container);
+            continue;
+          }
+          activeContainers.add(container);
+          applyWindow(container, items);
         }
-        activeContainers.add(container);
-        applyWindow(container, items);
+
+        for (const container of Array.from(activeContainers)) {
+          if (!groups.has(container) || !container.isConnected) teardown(container);
+        }
+      } else {
+        for (const container of Array.from(activeContainers)) teardown(container);
+        // The topics are not windowed, but the Reverse order button still flips
+        // each topic's own list.
+        for (const [container, items] of groups) {
+          applySortOrderToContainer(container, items, isReversed);
+        }
+        cancelSetup();
       }
 
-      for (const container of Array.from(activeContainers)) {
-        if (!groups.has(container) || !container.isConnected) teardown(container);
+      if (moveOverlayEnabled) {
+        applyMoveControls(groups);
+      } else if (document.querySelector(`.${CLASS.moveControls}`)) {
+        removeAllMoveControls();
       }
-
       reportScan(groups);
     } catch (err) {
       console.error('[Classroom++] scan failed', err);
@@ -2823,16 +3621,40 @@
       updateReviewMode();
     },
     isBulkReviewEnabled: () => bulkReviewEnabled,
-    setClassworkLayoutEnabled(on) {
-      classworkLayoutEnabled = on !== false;
+    setScrollWindowsEnabled(on) {
+      scrollWindowsEnabled = on !== false;
       scan();
     },
-    isClassworkLayoutEnabled: () => classworkLayoutEnabled,
+    isScrollWindowsEnabled: () => scrollWindowsEnabled,
+    setMoveOverlayEnabled(on) {
+      moveOverlayEnabled = on !== false;
+      scan();
+    },
+    isMoveOverlayEnabled: () => moveOverlayEnabled,
+    setReverseButtonEnabled(on) {
+      reverseButtonEnabled = on !== false;
+      scan();
+    },
+    isReverseButtonEnabled: () => reverseButtonEnabled,
+    // The single switch used before each feature had its own: it still flips
+    // all three together for older callers.
+    setClassworkLayoutEnabled(on) {
+      scrollWindowsEnabled = on !== false;
+      moveOverlayEnabled = on !== false;
+      reverseButtonEnabled = on !== false;
+      scan();
+    },
+    isClassworkLayoutEnabled: () =>
+      scrollWindowsEnabled && moveOverlayEnabled && reverseButtonEnabled,
     ensurePostsLoaded,
     pollView,
     viewSignature,
     syncWindowHeight,
     toggleSortOrder,
+    movePostByOne,
+    movePostToTopic,
+    topicTargets,
+    ensureMoveControls,
     getIsReversed: () => isReversed,
     recenterAllTopics,
     ensureSortToggleButton,

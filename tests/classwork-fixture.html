@@ -580,6 +580,45 @@ new MutationObserver(() => {
       document.querySelectorAll('.cpp-scroll-window').length > 0,
       `got ${document.querySelectorAll('.cpp-scroll-window').length}`);
 
+    // 19b. Each Classwork feature has its own switch: turning one off leaves
+    // the other two alone.
+    api.setMoveOverlayEnabled(false);
+    await wait(200);
+    ok('turning off the move overlay removes it',
+      document.querySelectorAll('.cpp-move-controls').length === 0,
+      `got ${document.querySelectorAll('.cpp-move-controls').length}`);
+    ok('the scroll areas stay when only the move overlay is off',
+      document.querySelectorAll('.cpp-scroll-window').length > 0,
+      `got ${document.querySelectorAll('.cpp-scroll-window').length}`);
+    api.setMoveOverlayEnabled(true);
+    await waitFor(() => document.querySelectorAll('.cpp-move-controls').length > 0);
+    ok('re-enabling the move overlay brings it back',
+      document.querySelectorAll('.cpp-move-controls').length > 0);
+
+    api.setReverseButtonEnabled(false);
+    await wait(150);
+    ok('turning off the reverse button removes it', !document.getElementById('cpp-sort-toggle'));
+    ok('the scroll areas stay when only the reverse button is off',
+      document.querySelectorAll('.cpp-scroll-window').length > 0,
+      `got ${document.querySelectorAll('.cpp-scroll-window').length}`);
+    api.setReverseButtonEnabled(true);
+    await waitFor(() => !!document.getElementById('cpp-sort-toggle'));
+    ok('re-enabling the reverse button brings it back', !!document.getElementById('cpp-sort-toggle'));
+
+    api.setScrollWindowsEnabled(false);
+    await wait(250);
+    ok('turning off scroll areas removes the windows',
+      document.querySelectorAll('.cpp-scroll-window').length === 0,
+      `got ${document.querySelectorAll('.cpp-scroll-window').length}`);
+    ok('the move overlay stays when scroll areas are off',
+      document.querySelectorAll('.cpp-move-controls').length > 0,
+      `got ${document.querySelectorAll('.cpp-move-controls').length}`);
+    api.setScrollWindowsEnabled(true);
+    await waitFor(() => document.querySelectorAll('.cpp-scroll-window').length > 0);
+    ok('re-enabling scroll areas brings the windows back',
+      document.querySelectorAll('.cpp-scroll-window').length > 0,
+      `got ${document.querySelectorAll('.cpp-scroll-window').length}`);
+
     // 20. Entering a class can reveal a whole Classwork view through style
     // changes only (no DOM insert the observer sees). It must still be enhanced
     // without reloading the page.
@@ -671,6 +710,214 @@ new MutationObserver(() => {
     parkedMain.remove();
     api.scan();
     await wait(100);
+
+    // 23. Hover move controls: up arrow, topic dot, down arrow on every post.
+    const movePost = list2.children[0];
+    const moveBox = movePost.querySelector('.cpp-move-controls');
+    // Virtual time in headless Chrome freezes CSS transitions, so the fade is
+    // switched off here to read the state the overlay settles into.
+    if (moveBox) moveBox.style.transition = 'none';
+    const indexOfMove = (list, el) => Array.from(list.children).indexOf(el);
+    const stopAnimations = () => document.getAnimations().forEach((a) => a.cancel());
+    ok('post carries move controls', !!moveBox);
+    ok('move controls are up, dot, down in that order',
+      !!moveBox && moveBox.children.length === 3 &&
+        moveBox.children[0].classList.contains('cpp-move-up') &&
+        moveBox.children[1].classList.contains('cpp-move-topic') &&
+        moveBox.children[2].classList.contains('cpp-move-down'),
+      moveBox ? Array.from(moveBox.children).map((b) => b.className).join(' | ') : 'none');
+    const movePostRect = movePost.getBoundingClientRect();
+    movePost.dispatchEvent(new PointerEvent('pointerenter', {
+      clientX: movePostRect.left + 20,
+      clientY: movePostRect.top + 20,
+    }));
+    const moveBoxRect = moveBox ? moveBox.getBoundingClientRect() : null;
+    ok('move controls sit beside the post box, not on top of it',
+      !!moveBoxRect && approx(movePostRect.left - moveBoxRect.right, 0, 1),
+      moveBoxRect
+        ? `controls right=${moveBoxRect.right.toFixed(1)} post left=${movePostRect.left.toFixed(1)}`
+        : 'none');
+    ok('the overlay leaves the page boxes alone',
+      getComputedStyle(list2).paddingLeft === '0px' &&
+        getComputedStyle(movePost).marginLeft === '0px',
+      `pad=${getComputedStyle(list2).paddingLeft} margin=${getComputedStyle(movePost).marginLeft}`);
+    ok('the overlay is stacked above the page',
+      !!moveBox && Number(getComputedStyle(moveBox).zIndex) > 1000,
+      moveBox ? `z-index=${getComputedStyle(moveBox).zIndex}` : 'none');
+    movePost.dispatchEvent(new PointerEvent('pointerleave'));
+    await wait(200);
+    ok('move controls are tinted with the course theme',
+      !!moveBox && moveBox.style.getPropertyValue('--cpp-theme') !== '' &&
+        getComputedStyle(moveBox).backgroundColor !== 'rgb(255, 255, 255)',
+      moveBox ? `theme=${moveBox.style.getPropertyValue('--cpp-theme')} bg=${getComputedStyle(moveBox).backgroundColor}` : '');
+    ok('move controls are hidden until the post is hovered',
+      !!moveBox && getComputedStyle(moveBox).opacity === '0' &&
+        getComputedStyle(moveBox).pointerEvents === 'none',
+      moveBox ? `opacity=${getComputedStyle(moveBox).opacity} pointer-events=${getComputedStyle(moveBox).pointerEvents}` : '');
+
+    // 23b. The overlay comes down as soon as the pointer is off the post, even
+    // where Chrome keeps :hover stuck: a click, a scroll, or focus in the post.
+    movePost.dispatchEvent(new PointerEvent('pointerenter', {
+      clientX: movePostRect.left + 20,
+      clientY: movePostRect.top + 20,
+    }));
+    await wait(200);
+    ok('the overlay shows while the post is hovered',
+      getComputedStyle(moveBox).opacity === '1',
+      `opacity=${getComputedStyle(moveBox).opacity} class=${movePost.className}`);
+    document.dispatchEvent(new PointerEvent('pointermove', { clientX: 2, clientY: 2 }));
+    window.dispatchEvent(new Event('scroll'));
+    await wait(200);
+    ok('the overlay hides once the pointer has left the post',
+      getComputedStyle(moveBox).opacity === '0',
+      `opacity=${getComputedStyle(moveBox).opacity}`);
+    const movePostLink = movePost.querySelector('a');
+    if (movePostLink) movePostLink.focus({ preventScroll: true });
+    await wait(200);
+    ok('focusing a post does not keep the overlay on screen',
+      getComputedStyle(moveBox).opacity === '0',
+      `opacity=${getComputedStyle(moveBox).opacity}`);
+    if (movePostLink) movePostLink.blur();
+    movePost.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: 2, clientY: 2 }));
+    movePost.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await wait(320);
+    ok('clicking a post does not leave the overlay on screen',
+      getComputedStyle(moveBox).opacity === '0',
+      `opacity=${getComputedStyle(moveBox).opacity}`);
+
+    // The dot sits on the header's vertical midpoint, and an expanded post keeps
+    // it there instead of sliding it down the middle of the taller card.
+    const dotCentreOf = (boxEl) => {
+      const r = boxEl.getBoundingClientRect();
+      return r.top + r.height / 2;
+    };
+    const moveDot = moveBox.querySelector('.cpp-move-topic');
+    const dotOffset = dotCentreOf(moveDot) - movePost.getBoundingClientRect().top;
+    ok('the dot sits on the header midpoint',
+      approx(dotOffset, 30, 1.5), `dot=${dotOffset.toFixed(1)} from the post top`);
+
+    const tallPost = list3.children[0];
+    const tallBox = tallPost.querySelector('.cpp-move-controls');
+    const tallRect = tallPost.getBoundingClientRect();
+    tallPost.dispatchEvent(new PointerEvent('pointerenter', {
+      clientX: tallRect.left + 20,
+      clientY: tallRect.top + 20,
+    }));
+    tallPost.style.height = '220px';
+    await wait(80);
+    const tallDotOffset = dotCentreOf(tallBox.querySelector('.cpp-move-topic')) -
+      tallPost.getBoundingClientRect().top;
+    ok('an expanded post keeps the dot on its header midpoint',
+      approx(tallDotOffset, 30, 3), `dot=${tallDotOffset.toFixed(1)}`);
+    tallPost.dispatchEvent(new PointerEvent('pointerleave'));
+    tallPost.style.height = '';
+    await wait(80);
+
+    ok('both arrows are usable on the first post, since the ends wrap',
+      !!moveBox && !moveBox.querySelector('.cpp-move-up').disabled &&
+        !moveBox.querySelector('.cpp-move-down').disabled);
+
+    api.movePostByOne(movePost, 1);
+    ok('down arrow moves the post one step down', list2.children[1] === movePost,
+      `index ${indexOfMove(list2, movePost)}`);
+    ok('moving a post animates the posts around it',
+      document.getAnimations().length > 0, `${document.getAnimations().length} animation(s)`);
+    ok('a moved post gets its own slide animation',
+      document.getAnimations().some((a) => a.effect && a.effect.target === movePost));
+    stopAnimations();
+    api.movePostByOne(movePost, -1);
+    ok('up arrow moves the post back up', list2.children[0] === movePost,
+      `index ${indexOfMove(list2, movePost)}`);
+
+    // The ends wrap: off the bottom lands on top, off the top lands at the end.
+    const lastPost = list2.children[list2.children.length - 1];
+    api.movePostByOne(lastPost, 1);
+    ok('moving the last post down jumps it to the top', list2.children[0] === lastPost,
+      `index ${indexOfMove(list2, lastPost)}`);
+    stopAnimations();
+    api.movePostByOne(lastPost, -1);
+    ok('moving the top post up jumps it to the bottom',
+      list2.children[list2.children.length - 1] === lastPost,
+      `index ${indexOfMove(list2, lastPost)}`);
+    stopAnimations();
+
+    // Short topics (no scroll window) get the controls too.
+    const smallPost = list3.children[0];
+    ok('a post in a short topic carries move controls',
+      !!smallPost.querySelector('.cpp-move-controls'));
+    api.movePostByOne(smallPost, -1);
+    ok('arrows work in a short topic and its top wraps to the bottom',
+      list3.children[list3.children.length - 1] === smallPost,
+      `index ${indexOfMove(list3, smallPost)}`);
+    stopAnimations();
+    api.movePostByOne(smallPost, 1);
+    ok('the short topic wraps back to the top', list3.children[0] === smallPost,
+      `index ${indexOfMove(list3, smallPost)}`);
+    stopAnimations();
+
+    // Dot -> topic picker
+    movePost.querySelector('.cpp-move-topic').click();
+    const topicMenu = document.querySelector('.cpp-move-menu');
+    ok('dot opens the topic picker', !!topicMenu);
+    const topicNames = topicMenu
+      ? Array.from(topicMenu.querySelectorAll('.cpp-move-option')).map((b) => b.textContent)
+      : [];
+    ok('topic picker lists the page topics',
+      topicNames.includes('Small Topic') && topicNames.includes('Topic Two (All Published)'),
+      topicNames.join(' | '));
+    const pageTopicNames = Array.from(mainEl.querySelectorAll('h2'))
+      .map((h) => h.textContent.replace(/\s+/g, ' ').trim());
+    const namedOptions = topicNames.filter((n) => n !== 'Untitled topic');
+    ok('every picker entry names a topic that is on the page',
+      namedOptions.every((n) => pageTopicNames.includes(n)),
+      `picker=${namedOptions.join(' | ')}`);
+    ok('every topic heading on the page is offered by the picker',
+      pageTopicNames.every((n) => topicNames.includes(n)),
+      `page=${pageTopicNames.join(' | ')}`);
+    const currentOption = topicMenu && topicMenu.querySelector('.cpp-move-current');
+    ok('topic picker marks the current topic',
+      !!currentOption && currentOption.textContent === 'Topic Two (All Published)' && currentOption.disabled,
+      currentOption ? currentOption.textContent : 'none');
+
+    const smallTopicOption = Array.from(topicMenu.querySelectorAll('.cpp-move-option'))
+      .find((b) => b.textContent === 'Small Topic');
+    if (smallTopicOption) smallTopicOption.click();
+    ok('choosing a topic moves the post into it',
+      list3.children.length === 4 && list3.lastElementChild === movePost,
+      `list3=${list3.children.length} contains=${list3.contains(movePost)}`);
+    ok('topic picker closes after choosing', !document.querySelector('.cpp-move-menu'));
+
+    // 24. Emptying a topic must not remove it from the picker: it is still on
+    // the page, with its heading, so posts can be moved back into it.
+    for (const post of Array.from(list3.children)) {
+      api.movePostToTopic(post, list1);
+    }
+    await wait(400);
+    ok('the topic is empty after its last post moved out',
+      list3.children.length === 0, `list3=${list3.children.length}`);
+    const refillPost = list4.children[0];
+    refillPost.querySelector('.cpp-move-topic').click();
+    const emptyMenu = document.querySelector('.cpp-move-menu');
+    const emptyNames = emptyMenu
+      ? Array.from(emptyMenu.querySelectorAll('.cpp-move-option')).map((b) => b.textContent)
+      : [];
+    ok('an emptied topic is still offered by the picker',
+      emptyNames.includes('Small Topic'), emptyNames.join(' | '));
+    const pageOrder = Array.from(mainEl.querySelectorAll('h2'))
+      .map((h) => h.textContent.replace(/\s+/g, ' ').trim())
+      .filter((n) => emptyNames.includes(n));
+    const menuOrder = emptyNames.filter((n) => n !== 'Untitled topic');
+    ok('the picker keeps the page order after a topic is emptied',
+      menuOrder.join(' | ') === pageOrder.join(' | '),
+      `menu=${menuOrder.join(' | ')} page=${pageOrder.join(' | ')}`);
+    const emptyOption = emptyMenu && Array.from(emptyMenu.querySelectorAll('.cpp-move-option'))
+      .find((b) => b.textContent === 'Small Topic');
+    ok('an emptied topic is not marked as the current topic',
+      !!emptyOption && !emptyOption.disabled);
+    if (emptyOption) emptyOption.click();
+    ok('a post can be moved into an emptied topic',
+      list3.children.length === 1 && list3.contains(refillPost),
+      `list3=${list3.children.length} contains=${list3.contains(refillPost)}`);
 
     const failed = lines.filter((l) => l.startsWith('FAIL')).length;
     lines.push(failed === 0 ? 'ALL TESTS PASSED' : `${failed} TEST(S) FAILED`);

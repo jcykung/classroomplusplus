@@ -19,6 +19,10 @@ Google LLC.
   the middle of the 5-post window, with upcoming drafts right below it.
 - **Reverse order.** A button placed to the left of Google's "Collapse all" flips the post order in
   every topic; its look is copied from that button at runtime.
+- **Move posts without dragging.** Hover a post for an up arrow, a down arrow and a topic dot in the
+  space beside it. The arrows step the post one place (wrapping at the ends) with a slide animation;
+  the dot opens a picker of the page's topics, in page order, so the post can be sent into another
+  topic. The overlay takes the course's theme colour and never changes the page's own layout.
 - **Editing stays visible.** Opening a post grows its scroll area by exactly the amount the post
   grew, so the whole post is visible.
 - **Works in every class.** Enhancement is applied in any class, archived ones included. Entering
@@ -36,14 +40,18 @@ Google LLC.
 
 ### Settings
 
-Two switches in the popup, stored in `chrome.storage.sync`:
+Four switches in the popup, stored in `chrome.storage.sync`:
 
 | Switch | Effect |
 | --- | --- |
-| **Classwork Layout** | Master switch for every Classwork change above |
+| **Scroll areas** | 5-post scroll windows, loading every post, centring the newest post, View all / View fewer |
+| **Move overlay** | The up arrow, topic dot and down arrow beside each post |
+| **Reverse order button** | The Reverse order button next to Google's "Collapse all" |
 | **Bulk Select on To Review** | The checkboxes and action bar on the To review page |
 
-Changing a switch refreshes any open Classroom tabs so the new layout is live immediately.
+Changing a switch refreshes any open Classroom tabs so the new layout is live immediately. A
+Classwork feature that has never been switched on its own follows the old single **Classwork
+Layout** setting, so an existing choice is kept.
 
 ## Scope and privacy
 
@@ -79,7 +87,7 @@ Runs four headless-Chrome fixture suites and prints PASS/FAIL for each assertion
 
 | Fixture | Covers |
 | --- | --- |
-| `tests/classwork-fixture.html` | Windows, centring, drafts, View all/fewer, collapse anchoring, loading labels, class switches, parked views, the layout switch |
+| `tests/classwork-fixture.html` | Windows, centring, drafts, View all/fewer, collapse anchoring, loading labels, class switches, parked views, the feature switches, the move overlay |
 | `tests/to-review-fixture.html` | Bulk select, shift-range, select all, marking reviewed, the popup switch |
 | `tests/stream-fixture.html` | Class Stream is never enhanced; parked Classwork views keep their layout |
 | `tests/archived-classwork-fixture.html` | Archived class with no topics and no selected tab is still enhanced |
@@ -105,7 +113,7 @@ Submission copy, permission justifications, data-usage answers and the review ch
 | `background.js` | Content-script registration after access is granted, install/update lifecycle (defaults, welcome screen, changelog) |
 | `src/content.js` | All page behaviour: detection, 5-post windows, loading, To review bulk select |
 | `src/content.css` | Scoped styles for the windows, toggles, overlay and To review UI |
-| `popup.html` / `popup.js` | The extension popup with the two switches |
+| `popup.html` / `popup.js` | The extension popup with the four switches |
 | `onboarding.html` / `onboarding.js` | Welcome screen |
 | `changelog.html` / `changelog.js` | Changelog |
 | `icons/` | 16/32/48/128 px icons |

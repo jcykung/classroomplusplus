@@ -1,5 +1,7 @@
 document.addEventListener('DOMContentLoaded', () => {
-  const toggleLayout = document.getElementById('toggleClassworkLayout');
+  const toggleScroll = document.getElementById('toggleScrollWindows');
+  const toggleOverlay = document.getElementById('toggleMoveOverlay');
+  const toggleReverse = document.getElementById('toggleReverseButton');
   const toggleBulkReview = document.getElementById('toggleBulkReview');
   const statusEl = document.getElementById('statusMessage');
   const tipBtn = document.getElementById('tipBtn');
@@ -13,6 +15,8 @@ document.addEventListener('DOMContentLoaded', () => {
   // user clicks, never at install.
   const CLASSROOM_ORIGIN = 'https://classroom.google.com/*';
   const STATUS_DEFAULT = 'Settings sync automatically across all your devices.';
+
+  const TOGGLES = [toggleScroll, toggleOverlay, toggleReverse, toggleBulkReview];
 
   function setStatus(text, color) {
     if (!statusEl) return;
@@ -33,7 +37,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function setAccessState(granted) {
     if (enableCard) enableCard.hidden = granted;
     if (settingsGroup) settingsGroup.classList.toggle('is-locked', !granted);
-    for (const toggle of [toggleLayout, toggleBulkReview]) {
+    for (const toggle of TOGGLES) {
       if (toggle) toggle.disabled = !granted;
     }
   }
@@ -93,18 +97,24 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Load saved settings from sync storage
-  chrome.storage.sync.get(['classworkLayout', 'smartCentering', 'bulkReview'], (result) => {
-    if (toggleLayout) {
-      // `smartCentering` is the key this switch used before it covered the
-      // whole Classwork layout; honour it for people who already set it.
-      const saved = typeof result.classworkLayout === 'boolean' ? result.classworkLayout : result.smartCentering;
-      toggleLayout.checked = saved !== false; // default true
+  // Load saved settings from sync storage. A Classwork feature that was never
+  // saved on its own keeps what the old single "Classwork Layout" switch said,
+  // so an existing choice is never silently overwritten.
+  chrome.storage.sync.get(
+    ['scrollWindows', 'moveOverlay', 'reverseButton', 'bulkReview', 'classworkLayout', 'smartCentering'],
+    (result) => {
+      const legacyLayout =
+        typeof result.classworkLayout === 'boolean'
+          ? result.classworkLayout
+          : result.smartCentering !== false;
+      const saved = (key) => (typeof result[key] === 'boolean' ? result[key] : legacyLayout);
+
+      if (toggleScroll) toggleScroll.checked = saved('scrollWindows');
+      if (toggleOverlay) toggleOverlay.checked = saved('moveOverlay');
+      if (toggleReverse) toggleReverse.checked = saved('reverseButton');
+      if (toggleBulkReview) toggleBulkReview.checked = result.bulkReview !== false;
     }
-    if (toggleBulkReview) {
-      toggleBulkReview.checked = result.bulkReview !== false; // default true
-    }
-  });
+  );
 
   // Settings are read once when the page loads, so every open Classroom tab has
   // to be refreshed for a change to apply. Bursts of toggles reload only once.
@@ -125,12 +135,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }, 150);
   }
 
-  // Handle setting updates. Reverse Order has no switch here (its button lives
-  // on the Classwork page), so only the switches that exist are written — this
+  // Handle setting updates. Only the switches that exist are written — this
   // must never overwrite isReversed with a default.
   function saveSettings() {
     const settings = {};
-    if (toggleLayout) settings.classworkLayout = toggleLayout.checked;
+    if (toggleScroll) settings.scrollWindows = toggleScroll.checked;
+    if (toggleOverlay) settings.moveOverlay = toggleOverlay.checked;
+    if (toggleReverse) settings.reverseButton = toggleReverse.checked;
     if (toggleBulkReview) settings.bulkReview = toggleBulkReview.checked;
 
     chrome.storage.sync.set(settings, () => {
@@ -139,11 +150,8 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  if (toggleLayout) {
-    toggleLayout.addEventListener('change', saveSettings);
-  }
-  if (toggleBulkReview) {
-    toggleBulkReview.addEventListener('change', saveSettings);
+  for (const toggle of TOGGLES) {
+    if (toggle) toggle.addEventListener('change', saveSettings);
   }
 
   checkAccess();

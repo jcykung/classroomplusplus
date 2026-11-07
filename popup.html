@@ -144,6 +144,14 @@
         opacity: 0.55;
         pointer-events: none;
       }
+      .group-label {
+        margin: 2px 0 6px 2px;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #94a3b8;
+      }
       .label {
         font-size: 13px;
         font-weight: 600;
@@ -347,22 +355,54 @@
     </div>
 
     <div class="settings-group" id="settingsGroup">
-    <!-- Setting 1: Classwork Layout (all Classwork enhancements) -->
+    <div class="group-label">Classwork</div>
+
+    <!-- Classwork features, one switch each -->
     <div class="card">
       <div class="label">
-        Classwork Layout
+        Scroll areas
         <span
           class="info-icon"
-          data-tooltip="Every Classwork change in one switch: topics become scrollable 5-post windows, the newest published post is centered, and View all / View fewer plus the Reverse order button are added."
+          data-tooltip="Caps every topic to a 5-post scroll area, loads all of its posts up front, centres the newest published post and adds View all / View fewer."
         ></span>
       </div>
       <label class="switch">
-        <input type="checkbox" id="toggleClassworkLayout" checked />
+        <input type="checkbox" id="toggleScrollWindows" checked />
         <span class="slider"></span>
       </label>
     </div>
 
-    <!-- Setting 2: Bulk Select on To Review -->
+    <div class="card">
+      <div class="label">
+        Move overlay
+        <span
+          class="info-icon"
+          data-tooltip="Shows an up arrow, a topic dot and a down arrow beside each post when you hover it. Move a post one place at a time, or pick another topic to send it to."
+        ></span>
+      </div>
+      <label class="switch">
+        <input type="checkbox" id="toggleMoveOverlay" checked />
+        <span class="slider"></span>
+      </label>
+    </div>
+
+    <div class="card">
+      <div class="label">
+        Reverse order button
+        <span
+          class="info-icon"
+          data-tooltip="Adds a Reverse order button next to Classroom's Collapse all, which flips the post order in every topic."
+        ></span>
+      </div>
+      <label class="switch">
+        <input type="checkbox" id="toggleReverseButton" checked />
+        <span class="slider"></span>
+      </label>
+    </div>
+
+    <div class="group-label">To review</div>
+
+    <!-- Bulk Select on To Review -->
     <div class="card">
       <div class="label">
         Bulk Select on To Review

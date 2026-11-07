@@ -100,7 +100,9 @@ chrome.runtime.onInstalled.addListener((details) => {
     chrome.storage.sync.set({
       isReversed: false,
       visiblePosts: 5,
-      classworkLayout: true,
+      scrollWindows: true,
+      moveOverlay: true,
+      reverseButton: true,
       bulkReview: true,
       firstRun: true
     });
