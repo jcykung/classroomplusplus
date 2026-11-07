@@ -298,6 +298,33 @@ new MutationObserver(() => {
       approx(list1.scrollTop, post2Top, 3),
       `scrollTop=${list1.scrollTop}`);
 
+    // 6b. Starting a drag inside a collapsed scroll window immediately opens
+    // the topic to "View all", without the grabbed post sliding away from the
+    // cursor (the exact point grabbed stays under it).
+    const dragPost = list1.children[5];
+    const dragRect = dragPost.getBoundingClientRect();
+    const dragStartY = dragRect.top + 20;
+    const dragX = dragRect.left + 30;
+    dragPost.dispatchEvent(new MouseEvent('mousedown', {
+      bubbles: true, button: 0, clientX: dragX, clientY: dragStartY,
+    }));
+    document.dispatchEvent(new MouseEvent('mousemove', {
+      bubbles: true, button: 0, clientX: dragX + 8, clientY: dragStartY + 8,
+    }));
+    ok('drag start expands the topic immediately', list1.classList.contains('cpp-expanded'));
+    ok('drag-expanded toggle offers View fewer',
+      !!btn1 && btn1.querySelector('.cpp-toggle-text').textContent === 'View fewer',
+      btn1 ? btn1.querySelector('.cpp-toggle-text').textContent : 'no toggle');
+    await wait(320);
+    ok('the grabbed point stays under the cursor after expanding',
+      approx(dragPost.getBoundingClientRect().top, dragRect.top, 6),
+      `${dragRect.top.toFixed(1)} -> ${dragPost.getBoundingClientRect().top.toFixed(1)}`);
+    document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, button: 0 }));
+    await wait(500);
+    if (list1.classList.contains('cpp-expanded')) btn1.click();
+    await wait(300);
+    ok('topic is collapsed again after the drag', !list1.classList.contains('cpp-expanded'));
+
     // 7. Small topics and sidebars untouched
     ok('list-3 untouched (small topic <= 5)', !list3.classList.contains('cpp-scroll-window'));
     ok('list-3 has no toggle', !(list3.nextElementSibling && list3.nextElementSibling.classList.contains('cpp-ui')));

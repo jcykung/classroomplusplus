@@ -1294,6 +1294,46 @@
     }
   }
 
+  /**
+   * A drag should be able to reach any post in the topic, not just the five in
+   * the collapsed window, so starting one opens the topic to "View all".
+   *
+   * Expanding lays the list out from the topic's top, which would otherwise
+   * yank the grabbed post out from under the cursor. The page is re-anchored
+   * so the exact point of the post the user grabbed stays under the cursor.
+   */
+  function expandTopicForDrag(item, clientY) {
+    const container = item.closest(`.${CLASS.window}`);
+    if (!container) return;
+    const st = stateByContainer.get(container);
+    if (!st || st.expanded) return;
+
+    // Where the cursor sits inside the post, measured before the layout moves.
+    const grabOffsetY = clientY - item.getBoundingClientRect().top;
+
+    setExpanded(container, st, true);
+
+    // Re-anchor a few times: the height change lands synchronously, but
+    // Classroom's own layout can settle a frame or two later.
+    let expectedY = null;
+    const adjust = () => {
+      if (!item.isConnected || !container.classList.contains(CLASS.expanded)) return;
+      // Our own last scroll position. If the page moved by anything else (the
+      // user scrolled), stop fighting them.
+      if (expectedY !== null && Math.abs(window.scrollY - expectedY) > 2) return;
+      const delta = item.getBoundingClientRect().top + grabOffsetY - clientY;
+      if (Math.abs(delta) >= 1) {
+        window.scrollTo({ top: window.scrollY + delta, behavior: 'instant' });
+      }
+      expectedY = window.scrollY;
+    };
+
+    adjust();
+    requestAnimationFrame(adjust);
+    setTimeout(adjust, 80);
+    setTimeout(adjust, 240);
+  }
+
   function setupGlobalDragHandlers() {
     if (window._cppGlobalDragAttached) return;
     window._cppGlobalDragAttached = true;
@@ -1333,6 +1373,8 @@
             isDragging = true;
             document.body.classList.add('cpp-dragging-active');
             log('Post drag started');
+            // Open the topic to every post as soon as the drag really starts.
+            expandTopicForDrag(potentialDrag.item, e.clientY);
           }
         }
 
