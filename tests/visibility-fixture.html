@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Classwork</title>
+<style>
+  body { font-family: Arial, sans-serif; margin: 0; }
+  .post { height: 60px; background: #f1f3f4; margin: 4px 0; }
+  #results { white-space: pre-wrap; font-family: monospace; padding: 16px; }
+</style>
+</head>
+<body>
+<div role="main">
+  <section id="topic-1" data-topic-id="t1">
+    <h2>Topic One</h2>
+    <div class="posts" id="list-1" role="list"></div>
+    <div id="view-more-1"></div>
+  </section>
+  <section id="topic-2" data-topic-id="t2">
+    <h2>Topic Two</h2>
+    <div class="posts" id="list-2" role="list"></div>
+    <div id="view-more-2"></div>
+  </section>
+</div>
+<div id="results">PENDING</div>
+
+<script src="../src/content.js"></script>
+<script>
+  // ---- fake clock + fake visibility -----------------------------------------
+  const realNow = Date.now.bind(Date);
+  let clockOffset = 0;
+  Date.now = () => realNow() + clockOffset;
+
+  let visibility = 'visible';
+  Object.defineProperty(document, 'visibilityState', {
+    configurable: true,
+    get: () => visibility,
+  });
+
+  const clicks = { t1: 0, t2: 0 };
+
+  function addViewMore(topic) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.setAttribute('aria-label', 'View more posts');
+    btn.textContent = 'View more';
+    btn.addEventListener('click', () => {
+      clicks[topic]++;
+      btn.remove();
+      addPosts(topic, 3);
+    });
+    document.getElementById(`view-more-${topic.slice(1)}`).appendChild(btn);
+  }
+
+  function addPosts(topic, n) {
+    const list = document.getElementById(`list-${topic.slice(1)}`);
+    for (let i = 0; i < n; i++) {
+      const post = document.createElement('div');
+      post.className = 'post';
+      post.setAttribute('role', 'listitem');
+      const a = document.createElement('a');
+      a.href = `/w/NTIzX2lk/a/item_${topic}_${list.children.length + 1}/details`;
+      a.textContent = `Post ${list.children.length + 1}`;
+      post.appendChild(a);
+      list.appendChild(post);
+    }
+  }
+
+  const results = document.getElementById('results');
+  const log = [];
+  let failed = 0;
+  function check(ok, label, detail) {
+    if (!ok) failed++;
+    log.push(`${ok ? 'PASS' : 'FAIL'} ${label}${detail ? ' — ' + detail : ''}`);
+    results.textContent = log.join('\n');
+  }
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const setVisibility = (v) => {
+    visibility = v;
+    document.dispatchEvent(new Event('visibilitychange'));
+  };
+
+  // ---- scenario -------------------------------------------------------------
+  (async () => {
+    addPosts('t1', 6);
+    addViewMore('t1');
+    addPosts('t2', 6);
+    addViewMore('t2');
+
+    await wait(700);
+    check(clicks.t1 === 1 && clicks.t2 === 1, 'first visit loads both truncated topics',
+      `t1=${clicks.t1} t2=${clicks.t2}`);
+
+    // Classroom re-renders the view while the tab is hidden: the same topics come
+    // back truncated, and a genuinely new topic appears.
+    setVisibility('hidden');
+    addViewMore('t1');
+    document.getElementById('topic-2').insertAdjacentHTML('afterend',
+      '<section id="topic-3" data-topic-id="t3"><h2>Topic Three</h2>' +
+      '<div class="posts" id="list-3" role="list"></div><div id="view-more-3"></div></section>');
+    clicks.t3 = 0;
+    addPosts('t3', 6);
+    addViewMore('t3');
+    await wait(1500);
+    check(clicks.t1 === 1 && clicks.t3 === 0, 'nothing is fetched while the tab is hidden',
+      `t1=${clicks.t1} t3=${clicks.t3}`);
+
+    setVisibility('visible');
+    await wait(1500);
+    check(clicks.t1 === 1, 'a return does not refetch topics that are already loaded',
+      `t1=${clicks.t1}`);
+    check(clicks.t3 === 1, 'a topic that appeared while away is loaded on return',
+      `t3=${clicks.t3}`);
+
+    // Same day, later: a real absence, long enough to revalidate.
+    setVisibility('hidden');
+    clockOffset += 16 * 60 * 1000;
+    setVisibility('visible');
+    await wait(1500);
+    check(clicks.t1 === 2, 'a long absence revalidates the topics', `t1=${clicks.t1}`);
+
+    results.textContent = log.join('\n') + (failed === 0 ? '\nALL TESTS PASSED' : `\n${failed} FAILED`);
+  })();
+</script>
+</body>
+</html>

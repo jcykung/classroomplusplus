@@ -2460,6 +2460,38 @@
   }
 
   /**
+   * Topics whose posts we already fetched, and when.
+   *
+   * Classroom re-renders the Classwork list by itself — often while the tab is
+   * in the background — and a re-render drops the posts our "View more" clicks
+   * fetched, so the same topics come back truncated a moment later. Without
+   * remembering them, every re-render (and so every tab activation) refetched
+   * the whole class. A topic that is genuinely new is not in here and loads at
+   * once; after the interval the topics are fetched again, so posts added or
+   * removed elsewhere are picked up after a real absence.
+   */
+  const AUTO_LOAD_INTERVAL_MS = 15 * 60 * 1000;
+  const loadedTopicAt = new Map();
+
+  function topicIdFor(btn) {
+    const node = btn.closest('[data-topic-id]');
+    return node ? node.dataset.topicId || node.getAttribute('data-topic-id') || 'unknown' : 'unknown';
+  }
+
+  /** Was this button's topic already loaded recently? */
+  function isRecentlyLoadedTopic(btn) {
+    const id = topicIdFor(btn);
+    if (id === 'unknown') return false;
+    const at = loadedTopicAt.get(id);
+    if (!at) return false;
+    if (Date.now() - at > AUTO_LOAD_INTERVAL_MS) {
+      loadedTopicAt.delete(id);
+      return false;
+    }
+    return true;
+  }
+
+  /**
    * Find any genuine "View more" buttons that haven't been clicked yet.
    */
   function findUnclickedViewMore() {
@@ -2475,7 +2507,7 @@
     const candidates = document.querySelectorAll(selectors.join(', '));
     for (const el of candidates) {
       const btn = el.closest('button, [role="button"]') || el;
-      if (!seen.has(btn) && !btn.dataset.cppClicked && isViewMoreButton(btn)) {
+      if (!seen.has(btn) && !btn.dataset.cppClicked && isViewMoreButton(btn) && !isRecentlyLoadedTopic(btn)) {
         const topicNode = btn.closest('[data-topic-id]');
         const topicId = topicNode ? topicNode.dataset.topicId || topicNode.getAttribute('data-topic-id') : 'unknown';
         const attempts = expansionAttemptsByTopic.get(topicId) || 0;
@@ -2489,7 +2521,7 @@
     // Also check other buttons strictly for "View more" text
     const allButtons = document.querySelectorAll('button, [role="button"]');
     for (const btn of allButtons) {
-      if (!seen.has(btn) && !btn.dataset.cppClicked && isViewMoreButton(btn)) {
+      if (!seen.has(btn) && !btn.dataset.cppClicked && isViewMoreButton(btn) && !isRecentlyLoadedTopic(btn)) {
         const topicNode = btn.closest('[data-topic-id]');
         const topicId = topicNode ? topicNode.dataset.topicId || topicNode.getAttribute('data-topic-id') : 'unknown';
         const attempts = expansionAttemptsByTopic.get(topicId) || 0;
@@ -2636,6 +2668,9 @@
   }
 
   let expansionRequested = false;
+  /** A request parked because the tab was in the background when it arrived. */
+  let pendingExpansion = false;
+
   /**
    * Expand every topic in the background whenever there is something left to
    * fetch. A no-op when everything is already loaded, which is what keeps a
@@ -2646,6 +2681,14 @@
     if (!scrollWindowsEnabled) return;
     if (!onClassworkContent()) return;
     if (findUnclickedViewMore().length === 0) return;
+
+    // Never fetch in the background. Classroom keeps rebuilding the list while
+    // the tab is hidden, and the work was invisible — the bar was still
+    // finishing when the tab came back. Replay the request once, on the way in.
+    if (document.visibilityState === 'hidden') {
+      pendingExpansion = true;
+      return;
+    }
 
     expansionRequested = true;
     window.setTimeout(() => {
@@ -2752,6 +2795,8 @@
     isExpanding = true;
     injectViewMoreHidingCSS();
 
+    const touchedTopics = new Set();
+
     try {
       // Click all currently-visible View more buttons. More rounds may be triggered
       // reactively by the MutationObserver as XHR responses arrive and new buttons appear.
@@ -2772,6 +2817,7 @@
           btn.classList.add('cpp-native-view-more');
           const topicNode = btn.closest('[data-topic-id]');
           const topicId = topicNode ? topicNode.dataset.topicId || topicNode.getAttribute('data-topic-id') : 'unknown';
+          if (topicId !== 'unknown') touchedTopics.add(topicId);
           const attempts = expansionAttemptsByTopic.get(topicId) || 0;
           // Bounded so a long-lived tab can never accumulate topic ids.
           if (expansionAttemptsByTopic.size > 500) expansionAttemptsByTopic.clear();
@@ -2790,6 +2836,14 @@
     } finally {
       isExpanding = false;
       noteSetupActivity();
+
+      // Remember the topics that are now complete, so the next re-render of this
+      // view (Classroom does that on its own) does not fetch them all again.
+      const stillTruncated = new Set(findUnclickedViewMore().map(topicIdFor));
+      for (const id of touchedTopics) {
+        if (!stillTruncated.has(id)) loadedTopicAt.set(id, Date.now());
+      }
+      if (loadedTopicAt.size > 500) loadedTopicAt.clear();
 
       // Apply the 5-post window, sort order and latest-post alignment now that
       // every post is present. This replaces the old 50 ms + 300 ms delays.
@@ -3585,7 +3639,12 @@
     // holds behind "View more". It is paused while the tab is in the background.
     pollTimer = window.setInterval(pollView, 1200);
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') pollView();
+      if (document.visibilityState !== 'visible') return;
+      if (pendingExpansion) {
+        pendingExpansion = false;
+        requestExpansion(0);
+      }
+      pollView();
     });
     // Release the timer if the page is put in the back/forward cache.
     window.addEventListener('pagehide', () => {

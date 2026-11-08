@@ -7,7 +7,7 @@ cd "$(dirname "$0")/.."
 CHROME="${CHROME:-/Applications/Google Chrome.app/Contents/MacOS/Google Chrome}"
 STATUS=0
 
-for FIXTURE in tests/classwork-fixture.html tests/to-review-fixture.html tests/stream-fixture.html tests/archived-classwork-fixture.html; do
+for FIXTURE in tests/classwork-fixture.html tests/to-review-fixture.html tests/stream-fixture.html tests/archived-classwork-fixture.html tests/visibility-fixture.html; do
   echo "== $FIXTURE"
   OUT="$(mktemp -t classroompp-test).html"
 

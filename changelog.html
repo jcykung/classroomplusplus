@@ -216,13 +216,30 @@
     <div class="subtitle">What's new and improved in Classroom++</div>
 
     <ul class="timeline">
+      <!-- v1.1.1 -->
+      <li class="timeline-item">
+        <div class="timeline-marker"></div>
+        <div class="timeline-header">
+          <h2 class="version-title">v1.1.1</h2>
+          <span class="version-date">November 2026</span>
+          <span class="badge badge-latest">Current</span>
+        </div>
+        <ul class="change-list">
+          <li class="change-item">
+            <span class="badge-tag tag-fix">FIX</span><strong>Returning to Classwork Stops Refetching the Class:</strong> Classroom rebuilds the Classwork list by itself, often while the tab is in the background, which made every trip back to the tab look like an unloaded class and fetch all of its posts again. Topics that were already loaded are now remembered for 15 minutes, so switching away and back fetches nothing — while a class you have not looked at in that long still reloads once, picking up posts added, edited or deleted elsewhere.
+          </li>
+          <li class="change-item">
+            <span class="badge-tag tag-fix">FIX</span><strong>No More Loading in the Background:</strong> Posts are no longer fetched while the tab is hidden. Work that would have started in the background is held until you come back, so the loading bar never greets you half-finished — and a topic created in the meantime still loads on arrival.
+          </li>
+        </ul>
+      </li>
+
       <!-- v1.1.0 -->
       <li class="timeline-item">
         <div class="timeline-marker"></div>
         <div class="timeline-header">
           <h2 class="version-title">v1.1.0</h2>
           <span class="version-date">November 2026</span>
-          <span class="badge badge-latest">Current</span>
         </div>
         <ul class="change-list">
           <li class="change-item">
