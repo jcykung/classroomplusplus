@@ -216,13 +216,27 @@
     <div class="subtitle">What's new and improved in Classroom++</div>
 
     <ul class="timeline">
+      <!-- v1.1.2 -->
+      <li class="timeline-item">
+        <div class="timeline-marker"></div>
+        <div class="timeline-header">
+          <h2 class="version-title">v1.1.2</h2>
+          <span class="version-date">November 2026</span>
+          <span class="badge badge-latest">Current</span>
+        </div>
+        <ul class="change-list">
+          <li class="change-item">
+            <span class="badge-tag tag-fix">FIX</span><strong>Topics Never Come Back Half-Loaded:</strong> Classroom sometimes rebuilds the Classwork list while you are away from the tab, and that rebuild throws away the posts already fetched, leaving only the first ten behind a fresh "View more". Classroom++ now checks whether those posts are still on the page rather than assuming a recently loaded topic is intact, so a topic that came back truncated is filled in again the moment you return — while returning to a topic whose posts survived still fetches nothing.
+          </li>
+        </ul>
+      </li>
+
       <!-- v1.1.1 -->
       <li class="timeline-item">
         <div class="timeline-marker"></div>
         <div class="timeline-header">
           <h2 class="version-title">v1.1.1</h2>
           <span class="version-date">November 2026</span>
-          <span class="badge badge-latest">Current</span>
         </div>
         <ul class="change-list">
           <li class="change-item">

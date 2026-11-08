@@ -14,8 +14,9 @@
  *    see what came before and what needs to be edited and posted next.
  * 4. Entering a class's Classwork never forces a page reload: the view mounts
  *    fresh, so its posts come from Classroom, and returning to a class reuses
- *    the posts already on the page. The loading bar only appears when there is
- *    actually work to do.
+ *    the posts already on the page. If Classroom's own re-render has dropped
+ *    posts we fetched, they are fetched again. The loading bar only appears
+ *    when there is actually work to do.
  * 5. Every post in a topic carries a small overlay that fades in on hover: an
  *    up arrow, a dot that opens the topic picker, and a down arrow. Dragging a
  *    post is fiddly, so these move it one step (or into another topic) instead.
@@ -2460,34 +2461,76 @@
   }
 
   /**
-   * Topics whose posts we already fetched, and when.
+   * Topics whose posts we already fetched: when, and how many posts the topic
+   * held in the DOM at that moment.
    *
    * Classroom re-renders the Classwork list by itself — often while the tab is
    * in the background — and a re-render drops the posts our "View more" clicks
-   * fetched, so the same topics come back truncated a moment later. Without
-   * remembering them, every re-render (and so every tab activation) refetched
-   * the whole class. A topic that is genuinely new is not in here and loads at
-   * once; after the interval the topics are fetched again, so posts added or
-   * removed elsewhere are picked up after a real absence.
+   * fetched, leaving only Google's first batch behind a fresh "View more".
+   * Time alone cannot tell a re-render apart from an untouched list: the post
+   * count is the evidence. While a topic still holds at least as many posts as
+   * we loaded, it is complete and its button is left alone; once it holds
+   * fewer, the rest were thrown away and have to be fetched again. Topics not
+   * remembered here are new and load at once, and after a real absence the
+   * topics are fetched again so posts changed elsewhere are picked up.
    */
   const AUTO_LOAD_INTERVAL_MS = 15 * 60 * 1000;
-  const loadedTopicAt = new Map();
+  /** @type {Map<string, {at: number, posts: number}>} */
+  const loadedTopicState = new Map();
 
   function topicIdFor(btn) {
     const node = btn.closest('[data-topic-id]');
     return node ? node.dataset.topicId || node.getAttribute('data-topic-id') || 'unknown' : 'unknown';
   }
 
-  /** Was this button's topic already loaded recently? */
-  function isRecentlyLoadedTopic(btn) {
+  /** How many posts one topic's own post list currently holds. */
+  function countTopicPosts(topicNode) {
+    if (!topicNode) return 0;
+    let most = 0;
+    for (const list of topicNode.querySelectorAll('ol, [role="list"]')) {
+      if (list.closest(SKIP_ANCESTOR_SELECTOR) || list.getAttribute('role') === 'menu') continue;
+      const items = Array.from(list.children).filter(
+        (c) =>
+          (c.tagName === 'LI' ||
+            c.getAttribute('role') === 'listitem' ||
+            (c.matches && c.matches('[data-stream-item-id]'))) &&
+          !c.classList.contains(CLASS.ui) &&
+          !c.classList.contains(CLASS.controls)
+      );
+      if (items.length > most) most = items.length;
+    }
+    // Markup that is not a list of items still identifies its posts.
+    if (most === 0) return topicNode.querySelectorAll('[data-stream-item-id]').length;
+    return most;
+  }
+
+  /** The topic node with this id that is on screen, else the first match. */
+  function topicNodeById(id) {
+    let first = null;
+    for (const node of document.querySelectorAll('[data-topic-id]')) {
+      const nodeId = node.dataset.topicId || node.getAttribute('data-topic-id');
+      if (nodeId !== id) continue;
+      if (node.getClientRects().length) return node;
+      if (!first) first = node;
+    }
+    return first;
+  }
+
+  /**
+   * Is this button's topic still fully on screen from a load we already did?
+   * A topic whose posts were re-rendered away holds fewer posts than we loaded,
+   * so it is not complete and its "View more" is clicked again.
+   */
+  function isTopicAlreadyLoaded(btn) {
     const id = topicIdFor(btn);
     if (id === 'unknown') return false;
-    const at = loadedTopicAt.get(id);
-    if (!at) return false;
-    if (Date.now() - at > AUTO_LOAD_INTERVAL_MS) {
-      loadedTopicAt.delete(id);
+    const state = loadedTopicState.get(id);
+    if (!state) return false;
+    if (Date.now() - state.at > AUTO_LOAD_INTERVAL_MS) {
+      loadedTopicState.delete(id);
       return false;
     }
+    if (countTopicPosts(btn.closest('[data-topic-id]')) < state.posts) return false;
     return true;
   }
 
@@ -2507,7 +2550,7 @@
     const candidates = document.querySelectorAll(selectors.join(', '));
     for (const el of candidates) {
       const btn = el.closest('button, [role="button"]') || el;
-      if (!seen.has(btn) && !btn.dataset.cppClicked && isViewMoreButton(btn) && !isRecentlyLoadedTopic(btn)) {
+      if (!seen.has(btn) && !btn.dataset.cppClicked && isViewMoreButton(btn) && !isTopicAlreadyLoaded(btn)) {
         const topicNode = btn.closest('[data-topic-id]');
         const topicId = topicNode ? topicNode.dataset.topicId || topicNode.getAttribute('data-topic-id') : 'unknown';
         const attempts = expansionAttemptsByTopic.get(topicId) || 0;
@@ -2521,7 +2564,7 @@
     // Also check other buttons strictly for "View more" text
     const allButtons = document.querySelectorAll('button, [role="button"]');
     for (const btn of allButtons) {
-      if (!seen.has(btn) && !btn.dataset.cppClicked && isViewMoreButton(btn) && !isRecentlyLoadedTopic(btn)) {
+      if (!seen.has(btn) && !btn.dataset.cppClicked && isViewMoreButton(btn) && !isTopicAlreadyLoaded(btn)) {
         const topicNode = btn.closest('[data-topic-id]');
         const topicId = topicNode ? topicNode.dataset.topicId || topicNode.getAttribute('data-topic-id') : 'unknown';
         const attempts = expansionAttemptsByTopic.get(topicId) || 0;
@@ -2837,13 +2880,17 @@
       isExpanding = false;
       noteSetupActivity();
 
-      // Remember the topics that are now complete, so the next re-render of this
-      // view (Classroom does that on its own) does not fetch them all again.
+      // Remember the topics that are now complete — and how many posts are on
+      // screen for them — so a re-render that kept the posts fetches nothing,
+      // while one that dropped them is noticed and fetched again.
       const stillTruncated = new Set(findUnclickedViewMore().map(topicIdFor));
       for (const id of touchedTopics) {
-        if (!stillTruncated.has(id)) loadedTopicAt.set(id, Date.now());
+        if (stillTruncated.has(id)) continue;
+        const node = topicNodeById(id);
+        if (!node) continue;
+        loadedTopicState.set(id, { at: Date.now(), posts: countTopicPosts(node) });
       }
-      if (loadedTopicAt.size > 500) loadedTopicAt.clear();
+      if (loadedTopicState.size > 500) loadedTopicState.clear();
 
       // Apply the 5-post window, sort order and latest-post alignment now that
       // every post is present. This replaces the old 50 ms + 300 ms delays.

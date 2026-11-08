@@ -91,10 +91,15 @@
     check(clicks.t1 === 1 && clicks.t2 === 1, 'first visit loads both truncated topics',
       `t1=${clicks.t1} t2=${clicks.t2}`);
 
-    // Classroom re-renders the view while the tab is hidden: the same topics come
-    // back truncated, and a genuinely new topic appears.
+    // Classroom re-renders the view while the tab is hidden. Its re-render drops
+    // the posts the first load fetched from t1, so t1 comes back as Google's
+    // first batch behind a fresh "View more". t2's posts survive and only its
+    // button reappears, and a genuinely new topic appears too.
     setVisibility('hidden');
+    document.getElementById('list-1').replaceChildren();
+    addPosts('t1', 3);
     addViewMore('t1');
+    addViewMore('t2');
     document.getElementById('topic-2').insertAdjacentHTML('afterend',
       '<section id="topic-3" data-topic-id="t3"><h2>Topic Three</h2>' +
       '<div class="posts" id="list-3" role="list"></div><div id="view-more-3"></div></section>');
@@ -102,22 +107,30 @@
     addPosts('t3', 6);
     addViewMore('t3');
     await wait(1500);
-    check(clicks.t1 === 1 && clicks.t3 === 0, 'nothing is fetched while the tab is hidden',
-      `t1=${clicks.t1} t3=${clicks.t3}`);
+    check(clicks.t1 === 1 && clicks.t2 === 1 && clicks.t3 === 0, 'nothing is fetched while the tab is hidden',
+      `t1=${clicks.t1} t2=${clicks.t2} t3=${clicks.t3}`);
 
     setVisibility('visible');
     await wait(1500);
-    check(clicks.t1 === 1, 'a return does not refetch topics that are already loaded',
+    check(clicks.t1 === 2, 'posts dropped by a re-render are fetched again on return',
       `t1=${clicks.t1}`);
+    check(clicks.t2 === 1, 'a return does not refetch a topic whose posts are still there',
+      `t2=${clicks.t2}`);
     check(clicks.t3 === 1, 'a topic that appeared while away is loaded on return',
       `t3=${clicks.t3}`);
 
-    // Same day, later: a real absence, long enough to revalidate.
+    // The restored topic is complete again, so the safety net does not click it
+    // in a loop once the posts are back.
+    await wait(1500);
+    check(clicks.t1 === 2, 'a refetched topic is not fetched again', `t1=${clicks.t1}`);
+
+    // Same day, later: a real absence, long enough to revalidate (t2's button
+    // from the skipped re-render is still waiting).
     setVisibility('hidden');
     clockOffset += 16 * 60 * 1000;
     setVisibility('visible');
     await wait(1500);
-    check(clicks.t1 === 2, 'a long absence revalidates the topics', `t1=${clicks.t1}`);
+    check(clicks.t2 === 2, 'a long absence revalidates the topics', `t2=${clicks.t2}`);
 
     results.textContent = log.join('\n') + (failed === 0 ? '\nALL TESTS PASSED' : `\n${failed} FAILED`);
   })();
