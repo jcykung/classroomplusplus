@@ -1004,6 +1004,10 @@
 
   function teardown(container) {
     container.classList.remove(CLASS.window, CLASS.expanded);
+    container.classList.remove('cpp-reversed', 'cpp-reversed-stack');
+    for (const child of container.children) {
+      if (child.style && child.style.order) child.style.removeProperty('order');
+    }
     for (const prop of Object.values(VARS)) container.style.removeProperty(prop);
     const topicNode = topicNodeForContainer(container);
     if (topicNode) {
@@ -1731,10 +1735,11 @@
       st.itemCount = items.length;
       // Let the next scan re-measure the window: the posts may differ in height.
       st.windowHeight = 0;
-      applySortOrderToContainer(container, items, isReversed);
       observeWindowHeights(container, st, items);
       if (st.ui) ensureControls(container, st);
     }
+    // Also outside a scroll window: `order` has to follow the posts that moved.
+    applySortOrderToContainer(container, items, isReversed);
     syncMoveControls(container);
     // The post just jumped, so the overlay's spot moved with it.
     verifyHoveredMoveItem();
@@ -2255,6 +2260,12 @@
   function ensureSortToggleButton() {
     let btn = document.getElementById('cpp-sort-toggle');
 
+    // The switch is authoritative: never put the button back while it is off.
+    if (!reverseButtonEnabled) {
+      if (btn) removeSortToggleButton();
+      return;
+    }
+
     // The button belongs to the Classwork tab only: never show it elsewhere.
     if (!onClassworkContent()) {
       // Classroom hides a Classwork view for a moment while it re-renders a
@@ -2335,17 +2346,33 @@
       }
     }
 
-    // Without scroll areas a topic is still just a list, so the Reverse order
-    // button flips it the same way.
-    if (!scrollWindowsEnabled) {
-      for (const [container, items] of collectGroups(getMainElement())) {
-        applySortOrderToContainer(container, items, isReversed);
-      }
+    // Every topic list flips, windowed or not, so the Reverse order button does
+    // not depend on scroll areas being on.
+    for (const [container, items] of collectGroups(getMainElement())) {
+      applySortOrderToContainer(container, items, isReversed);
     }
   }
 
   function applySortOrderToContainer(container, items, reversed) {
     container.classList.toggle('cpp-reversed', reversed);
+
+    // `order` only reorders the children of a flex or grid box. Classroom's
+    // topic list is often a plain <ol> (a block box), where the flip painted
+    // nothing — which is why reversing only worked alongside scroll areas.
+    // Such a list is turned into a column while it is reversed. Our own class
+    // is lifted first so a second call measures the list's natural display
+    // instead of the flex box it just created.
+    container.classList.remove('cpp-reversed-stack');
+    let needsStack = false;
+    if (reversed) {
+      try {
+        needsStack = !/(?:inline-)?(?:flex|grid)$/.test(getComputedStyle(container).display);
+      } catch (_) {
+        needsStack = false;
+      }
+    }
+    container.classList.toggle('cpp-reversed-stack', needsStack);
+
     const count = items.length;
     for (let i = 0; i < count; i++) {
       if (reversed) {
@@ -2371,6 +2398,17 @@
   // Maximum View more clicks per topic. Google loads ~10 posts per click.
   // A topic with 50+ posts needs 4+ clicks. Set high enough to cover any real classroom.
   const MAX_EXPANSION_ATTEMPTS = 30;
+
+  /**
+   * Put Google's own "View more" buttons back on screen. They are only hidden
+   * while the scroll areas load a topic's whole list; with the scroll areas off
+   * Classwork should look and scroll exactly as Google rendered it.
+   */
+  function restoreNativeViewMore() {
+    for (const btn of document.querySelectorAll('.cpp-native-view-more')) {
+      btn.classList.remove('cpp-native-view-more');
+    }
+  }
 
   /**
    * Inject CSS to hide the native "View more" button for topics we manage.
@@ -2721,6 +2759,8 @@
    */
   function requestExpansion(delay = 0) {
     if (isExpanding || expansionRequested) return;
+    // Only the scroll windows need every post. With them off the page is
+    // Classwork's default view, so nothing is fetched in the background.
     if (!scrollWindowsEnabled) return;
     if (!onClassworkContent()) return;
     if (findUnclickedViewMore().length === 0) return;
@@ -2789,7 +2829,6 @@
     // Nothing here matters while the tab is in the background; resuming the tab
     // fires visibilitychange, which scans immediately.
     if (document.visibilityState === 'hidden') return;
-    if (!scrollWindowsEnabled) return;
 
     // Silent SPA navigation (history.pushState) fires no event of its own.
     if (location.pathname !== lastPath) onNavigationChange();
@@ -2797,8 +2836,10 @@
     const signature = viewSignature();
     const changed = signature !== lastViewSignature;
     // Also retry while Classwork is showing but nothing has been enhanced yet,
-    // in case the first scan ran before the page was ready.
+    // in case the first scan ran before the page was ready. Only scroll areas
+    // make a topic count as enhanced, so this retry is pointless without them.
     const stuck =
+      scrollWindowsEnabled &&
       activeContainers.size === 0 &&
       onClassworkContent() &&
       document.querySelectorAll('[data-topic-id]').length > 0 &&
@@ -2812,14 +2853,10 @@
     // Keep the toolbar button there and on screen. Classroom re-renders its
     // toolbar and parks old views in the DOM; a button dropped along the way, or
     // left inside a hidden toolbar, would otherwise stay that way until the next
-    // unrelated scan (or a page reload).
-    const sortBtn = document.getElementById('cpp-sort-toggle');
-    if (
-      onClassworkContent() &&
-      (!sortBtn || !sortBtn.getClientRects().length)
-    ) {
-      ensureSortToggleButton();
-    }
+    // unrelated scan (or a page reload). ensureSortToggleButton() respects the
+    // reverseButton switch, so this never resurrects a button the user turned
+    // off.
+    if (onClassworkContent()) ensureSortToggleButton();
   }
 
   /**
@@ -2828,6 +2865,8 @@
    */
   async function triggerAutoExpansion() {
     if (isExpanding) return;
+    // The switch may have been turned off while this request was waiting.
+    if (!scrollWindowsEnabled) return;
 
     const initial = findUnclickedViewMore();
     if (initial.length === 0) return;
@@ -2846,6 +2885,9 @@
       for (let round = 0; round < 20; round++) {
         // The user may navigate to another tab mid-load; stop fetching there.
         if (!onClassworkContent()) break;
+        // Turning the scroll areas off mid-load means "back to default": the
+        // remaining posts stay behind Google's View more button.
+        if (!scrollWindowsEnabled) break;
 
         const buttons = findUnclickedViewMore();
         if (buttons.length === 0) break;
@@ -2977,12 +3019,16 @@
         }
       } else {
         for (const container of Array.from(activeContainers)) teardown(container);
-        // The topics are not windowed, but the Reverse order button still flips
-        // each topic's own list.
-        for (const [container, items] of groups) {
-          applySortOrderToContainer(container, items, isReversed);
-        }
+        // No scroll areas means the default Classwork page: nothing is being
+        // loaded any more, and Google's own View more buttons are visible again.
         cancelSetup();
+        restoreNativeViewMore();
+      }
+
+      // Each topic list flips on its own, whether or not it is a scroll window,
+      // so the Reverse order button works with scroll areas switched off.
+      for (const [container, items] of groups) {
+        applySortOrderToContainer(container, items, isReversed);
       }
 
       if (moveOverlayEnabled) {

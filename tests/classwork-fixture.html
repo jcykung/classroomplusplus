@@ -625,6 +625,14 @@ new MutationObserver(() => {
     api.setReverseButtonEnabled(false);
     await wait(150);
     ok('turning off the reverse button removes it', !document.getElementById('cpp-sort-toggle'));
+    // The 1.2 s timer that keeps the toolbar button alive must respect the
+    // switch: it used to re-add the button every poll, so it flashed on and off.
+    let flashedBack = false;
+    for (let i = 0; i < 30 && !flashedBack; i++) {
+      await wait(50);
+      flashedBack = !!document.getElementById('cpp-sort-toggle');
+    }
+    ok('the reverse button stays off instead of flashing back', !flashedBack);
     ok('the scroll areas stay when only the reverse button is off',
       document.querySelectorAll('.cpp-scroll-window').length > 0,
       `got ${document.querySelectorAll('.cpp-scroll-window').length}`);
@@ -637,14 +645,81 @@ new MutationObserver(() => {
     ok('turning off scroll areas removes the windows',
       document.querySelectorAll('.cpp-scroll-window').length === 0,
       `got ${document.querySelectorAll('.cpp-scroll-window').length}`);
+
+    // With the scroll areas off the page is Classwork's default view: a
+    // truncated topic keeps its posts behind Google's own "View more" instead
+    // of being fetched in the background.
+    const truncTopic = document.createElement('section');
+    truncTopic.setAttribute('data-topic-id', '877248554650');
+    const truncList = document.createElement('ol');
+    truncList.className = 'posts';
+    for (let i = 0; i < 4; i++) truncList.appendChild(buildPost('list-noexpand', i, false, false));
+    const truncBtn = document.createElement('button');
+    truncBtn.setAttribute('jsname', 't6Kl7b');
+    truncBtn.setAttribute('aria-label', 'View more posts');
+    truncBtn.textContent = 'View more';
+    truncBtn.addEventListener('click', () => {
+      for (let i = 4; i < 10; i++) truncList.appendChild(buildPost('list-noexpand', i, false, false));
+      truncBtn.remove();
+    }, { once: true });
+    truncTopic.appendChild(truncList);
+    truncTopic.appendChild(truncBtn);
+    document.querySelector('[role="main"]').appendChild(truncTopic);
+    // Longer than the 1.2 s poll (plus its expansion delay), so a leftover
+    // background fetch has every chance to fire.
+    await wait(2600);
+    ok('scroll areas off leaves posts behind View more (default Classwork)',
+      truncList.children.length === 4 && truncBtn.isConnected,
+      `${truncList.children.length} post(s), clicked=${truncBtn.dataset.cppClicked === 'true'}`);
+    ok('the native View more button stays visible with scroll areas off',
+      truncBtn.isConnected && !truncBtn.classList.contains('cpp-native-view-more'),
+      truncBtn.className || 'no class');
+
+    // Reverse order must work on its own. Without scroll areas the list is not
+    // a flex box, and CSS `order` alone did nothing there, so the button
+    // appeared but the posts never flipped.
+    const reverseTopic = document.createElement('section');
+    reverseTopic.setAttribute('data-topic-id', '877248554654');
+    const reverseList = document.createElement('ol');
+    reverseList.style.cssText = 'display: block; margin: 0; padding: 0; list-style: none;';
+    for (let i = 0; i < 6; i++) reverseList.appendChild(buildPost('list-reverse', i, false, false));
+    reverseTopic.appendChild(reverseList);
+    document.querySelector('[role="main"]').appendChild(reverseTopic);
+    await wait(400);
+    const topOnScreen = (list) => Array.from(list.children)
+      .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top)[0];
+    ok('block-layout topic starts in DOM order', topOnScreen(reverseList) === reverseList.children[0]);
+    const reverseBtn = document.getElementById('cpp-sort-toggle');
+    ok('reverse button is there with scroll areas off', !!reverseBtn);
+    if (reverseBtn) reverseBtn.click();
+    await wait(200);
+    ok('reverse flips a block-layout topic with scroll areas off',
+      topOnScreen(reverseList) === reverseList.children[reverseList.children.length - 1],
+      `top=${topOnScreen(reverseList).textContent}`);
+    if (reverseBtn) reverseBtn.click();
+    await wait(100);
+    reverseTopic.remove();
     ok('the move overlay stays when scroll areas are off',
       document.querySelectorAll('.cpp-move-controls').length > 0,
       `got ${document.querySelectorAll('.cpp-move-controls').length}`);
+    // Not just present: the overlay moves a post on a page with no windows.
+    const firstBeforeMove = list1.children[0];
+    const moveDownBtn = firstBeforeMove.querySelector('.cpp-move-down');
+    if (moveDownBtn) moveDownBtn.click();
+    await wait(250);
+    ok('move overlay moves a post with scroll areas off',
+      list1.children[0] !== firstBeforeMove,
+      `first=${list1.children[0].textContent}`);
     api.setScrollWindowsEnabled(true);
     await waitFor(() => document.querySelectorAll('.cpp-scroll-window').length > 0);
     ok('re-enabling scroll areas brings the windows back',
       document.querySelectorAll('.cpp-scroll-window').length > 0,
       `got ${document.querySelectorAll('.cpp-scroll-window').length}`);
+    // ...and background loading comes back with them.
+    const truncReloaded = await waitFor(() => truncList.children.length === 10, 6000);
+    ok('re-enabling scroll areas loads the truncated topic again', truncReloaded,
+      `${truncList.children.length} post(s)`);
+    truncTopic.remove();
 
     // 20. Entering a class can reveal a whole Classwork view through style
     // changes only (no DOM insert the observer sees). It must still be enhanced

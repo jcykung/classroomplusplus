@@ -43,7 +43,8 @@ CLASSWORK LAYOUT
   longer stretch the whole page.
 • Every post is loaded up front — Classroom's hidden "View more" batches are fetched for
   you — and the newest published post is centred so the drafts you are about to post sit
-  right next to it.
+  right next to it. This loading belongs to the scroll areas: turn them off and Classwork
+  keeps Google's own truncated lists, with each topic still behind "View more".
 • "View all" / "View fewer" expands a topic in place.
 • A "Reverse order" button next to Classroom's own "Collapse all" flips the order of posts
   in every topic.
@@ -51,7 +52,8 @@ CLASSWORK LAYOUT
   down (the ends wrap around) or send it to another topic from the dot's picker, with a slide
   animation instead of dragging.
 • Every Classwork feature has its own switch — scroll areas, move overlay and the Reverse order
-  button — so you can keep only the parts you want.
+  button — so you can keep only the parts you want, in any combination. The Reverse order button
+  and the hover mover work with the scroll areas off.
 • Opening a post to edit it grows its scroll area by the same amount, so the whole post
   stays visible.
 • Entering a class's Classwork never reloads the page — the view mounts fresh, so its posts

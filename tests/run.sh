@@ -12,7 +12,7 @@ for FIXTURE in tests/classwork-fixture.html tests/to-review-fixture.html tests/s
   OUT="$(mktemp -t classroompp-test).html"
 
   "$CHROME" --headless=new --disable-gpu --no-sandbox --hide-scrollbars \
-    --virtual-time-budget=12000 \
+    --virtual-time-budget=20000 \
     --dump-dom "file://$PWD/$FIXTURE" > "$OUT"
 
   # Pull the #results text out of the dumped DOM.

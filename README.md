@@ -14,7 +14,8 @@ Google LLC.
   posts at a time; shorter topics are left untouched. **View all** / **View fewer** expands a
   topic in place.
 - **Everything loaded.** Google's hidden "View more" batches are fetched automatically, so the
-  newest published post is always present and every post is scrollable.
+  newest published post is always present and every post is scrollable. This loading belongs to
+  the **Scroll areas** switch: turn it off and Classwork keeps Google's own truncated lists.
 - **Newest post centred.** Each topic scrolls so the latest *published* post (not a draft) sits in
   the middle of the 5-post window, with upcoming drafts right below it.
 - **Reverse order.** A button placed to the left of Google's "Collapse all" flips the post order in
@@ -44,7 +45,7 @@ Four switches in the popup, stored in `chrome.storage.sync`:
 
 | Switch | Effect |
 | --- | --- |
-| **Scroll areas** | 5-post scroll windows, loading every post, centring the newest post, View all / View fewer |
+| **Scroll areas** | 5-post scroll windows, loading every post, centring the newest post, View all / View fewer. Off leaves Classwork exactly as Google renders it, with posts still behind "View more" |
 | **Move overlay** | The up arrow, topic dot and down arrow beside each post |
 | **Reverse order button** | The Reverse order button next to Google's "Collapse all" |
 | **Bulk Select on To Review** | The checkboxes and action bar on the To review page |

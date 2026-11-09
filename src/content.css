@@ -103,6 +103,14 @@
   flex-direction: column !important;
 }
 
+/* A reversed topic list that is not a scroll window may be a plain block <ol>,
+ * where `order` has no effect. Stack it as a column while it is reversed so
+ * Reverse order works without scroll areas. */
+.cpp-reversed-stack {
+  display: flex !important;
+  flex-direction: column !important;
+}
+
 /* Sort toggle button, placed to the left of "Collapse all". Its look is
  * mirrored from that button at runtime; these rules are the fallback used
  * before/without a Collapse all button to copy from. */
